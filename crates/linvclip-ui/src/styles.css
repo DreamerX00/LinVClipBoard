@@ -559,6 +559,31 @@ body,
     background: var(--bg-glass);
 }
 
+.search-regex-toggle {
+    background: none;
+    border: 1px solid transparent;
+    color: var(--text-tertiary);
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 700;
+    font-family: monospace;
+    padding: 2px 8px;
+    border-radius: var(--radius-sm);
+    transition: all var(--transition-fast);
+    margin-right: 2px;
+}
+
+.search-regex-toggle:hover {
+    color: var(--text-primary);
+    background: var(--bg-glass);
+}
+
+.search-regex-toggle.active {
+    color: var(--accent);
+    border-color: var(--accent);
+    background: var(--accent-glow);
+}
+
 /* ---- Filter Pills ---- */
 .filter-pills {
     display: flex;
@@ -3573,6 +3598,150 @@ select:focus-visible {
 }
 
 /* (responsive fallback removed — window auto-resizes for preview) */
+
+/* ============================================
+   Color Picker
+   ============================================ */
+
+.color-picker {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 16px;
+    gap: 12px;
+    overflow-y: auto;
+}
+
+.color-picker .react-colorful {
+    width: 200px;
+    height: 200px;
+}
+
+.color-picker .react-colorful__saturation {
+    border-radius: 8px 8px 0 0;
+}
+
+.color-picker .react-colorful__hue {
+    height: 12px;
+    border-radius: 0 0 8px 8px;
+}
+
+.color-preview-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 0 8px;
+}
+
+.color-swatch {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    border: 2px solid var(--border-color);
+    flex-shrink: 0;
+}
+
+.color-value {
+    font-family: monospace;
+    font-size: 14px;
+    color: var(--text-primary);
+    user-select: all;
+}
+
+.color-controls {
+    display: flex;
+    gap: 8px;
+    width: 100%;
+    padding: 0 8px;
+}
+
+.color-format-select {
+    flex: 1;
+    background: var(--bg-glass);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    border-radius: var(--radius-sm);
+    padding: 6px 10px;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.color-copy-btn {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: var(--radius-sm);
+    padding: 6px 16px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity var(--transition-fast);
+}
+
+.color-copy-btn:hover {
+    opacity: 0.85;
+}
+
+.color-presets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 0 8px;
+    justify-content: center;
+}
+
+.color-preset-swatch {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    border: 2px solid transparent;
+    cursor: pointer;
+    transition: transform var(--transition-fast), border-color var(--transition-fast);
+    padding: 0;
+}
+
+.color-preset-swatch:hover {
+    transform: scale(1.2);
+}
+
+.color-preset-swatch.active {
+    border-color: var(--accent);
+    transform: scale(1.15);
+}
+
+.color-history {
+    width: 100%;
+    padding: 0 8px;
+}
+
+.color-history-label {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    margin-bottom: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.color-history-swatches {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.color-history-swatch {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    border: 1px solid var(--border-color);
+    cursor: pointer;
+    padding: 0;
+    transition: transform var(--transition-fast);
+}
+
+.color-history-swatch:hover {
+    transform: scale(1.2);
+}
 
 /* ============================================
    Snippets & Templates

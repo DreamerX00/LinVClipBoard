@@ -96,7 +96,7 @@ function SettingsPanel({ onClose, zoom, onZoomChange }) {
             localStorage.setItem("theme", cfg.ui.theme);
         }
 
-        const accent = localStorage.getItem("accent_color") || "auto";
+        const accent = accentColor;
         if (accent !== "auto") {
             document.documentElement.style.setProperty("--accent", accent);
             document.documentElement.style.setProperty("--accent-hover", accent + "cc");

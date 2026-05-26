@@ -24,13 +24,15 @@ fn roundtrip_search() {
     let req = IpcRequest::Search {
         query: "hello world".into(),
         limit: 10,
+        offset: 0,
     };
     let json = serde_json::to_string(&req).unwrap();
     let parsed: IpcRequest = serde_json::from_str(&json).unwrap();
     match parsed {
-        IpcRequest::Search { query, limit } => {
+        IpcRequest::Search { query, limit, offset } => {
             assert_eq!(query, "hello world");
             assert_eq!(limit, 10);
+            assert_eq!(offset, 0);
         }
         _ => panic!("expected Search"),
     }

@@ -59,6 +59,7 @@ function PreviewPane({ item, onPaste, onToast, onItemUpdate }) {
     // Fetch syntax highlighting for code / JSON
     useEffect(() => {
         if (!item) return;
+        let cancelled = false;
         setHighlightedHtml("");
         setDetectedLang("");
 
@@ -67,13 +68,15 @@ function PreviewPane({ item, onPaste, onToast, onItemUpdate }) {
 
             // Detect language first
             invoke("detect_language", { code: text })
-                .then(setDetectedLang)
+                .then((lang) => { if (!cancelled) setDetectedLang(lang); })
                 .catch(() => {});
 
             invoke("highlight_code", { code: text, language: lang })
-                .then(setHighlightedHtml)
+                .then((html) => { if (!cancelled) setHighlightedHtml(html); })
                 .catch(() => {});
         }
+
+        return () => { cancelled = true; };
     }, [item?.id, contentType]);
 
     // Reset OCR text on item change
@@ -85,10 +88,12 @@ function PreviewPane({ item, onPaste, onToast, onItemUpdate }) {
     // Fetch image
     useEffect(() => {
         if (!item || item.content_type !== "image") { setImgSrc(null); return; }
+        let cancelled = false;
         invoke("get_image_base64", { path: item.content })
-            .then(setImgSrc)
-            .catch(() => setImgSrc(null));
-    }, [item?.id]);
+            .then((src) => { if (!cancelled) setImgSrc(src); })
+            .catch(() => { if (!cancelled) setImgSrc(null); });
+        return () => { cancelled = true; };
+    }, [item?.id, item?.content]);
 
     const handleOcr = async () => {
         if (!item || item.content_type !== "image" || ocrLoading) return;

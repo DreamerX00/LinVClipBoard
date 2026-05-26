@@ -81,9 +81,31 @@ async fn get_items(offset: u32, limit: u32) -> Result<ItemsResult, String> {
 
 /// Search clipboard items.
 #[tauri::command]
-async fn search_items(query: String, limit: u32) -> Result<ItemsResult, String> {
+async fn search_items(query: String, limit: u32, offset: u32) -> Result<ItemsResult, String> {
     let socket = AppConfig::socket_path();
-    let request = IpcRequest::Search { query, limit };
+    let request = IpcRequest::Search { query, limit, offset };
+
+    match send_request(&socket, &request).await {
+        Ok(IpcResponse::Items { items, total }) => Ok(ItemsResult { items, total }),
+        Ok(IpcResponse::Error { message }) => Err(message),
+        Err(e) => Err(format!("Connection failed: {}", e)),
+        _ => Err("Unexpected response".to_string()),
+    }
+}
+
+/// Search clipboard items using regex.
+#[tauri::command]
+async fn search_items_regex(
+    pattern: String,
+    limit: u32,
+    offset: u32,
+) -> Result<ItemsResult, String> {
+    let socket = AppConfig::socket_path();
+    let request = IpcRequest::SearchRegex {
+        pattern,
+        limit,
+        offset,
+    };
 
     match send_request(&socket, &request).await {
         Ok(IpcResponse::Items { items, total }) => Ok(ItemsResult { items, total }),
@@ -1174,6 +1196,38 @@ fn generate_qr_code(text: String) -> Result<String, String> {
     Ok(format!("data:image/png;base64,{b64}"))
 }
 
+/// Convert JSON string to YAML.
+#[tauri::command]
+fn convert_json_to_yaml(json_text: String) -> Result<String, String> {
+    let value: serde_json::Value =
+        serde_json::from_str(&json_text).map_err(|e| format!("Invalid JSON: {}", e))?;
+    yaml_serde::to_string(&value).map_err(|e| e.to_string())
+}
+
+/// Convert YAML string to JSON.
+#[tauri::command]
+fn convert_yaml_to_json(yaml_text: String) -> Result<String, String> {
+    let value: yaml_serde::Value =
+        yaml_serde::from_str(&yaml_text).map_err(|e| format!("Invalid YAML: {}", e))?;
+    serde_json::to_string_pretty(&value).map_err(|e| e.to_string())
+}
+
+/// Convert JSON string to TOML.
+#[tauri::command]
+fn convert_json_to_toml(json_text: String) -> Result<String, String> {
+    let value: serde_json::Value =
+        serde_json::from_str(&json_text).map_err(|e| format!("Invalid JSON: {}", e))?;
+    toml::to_string(&value).map_err(|e| e.to_string())
+}
+
+/// Convert TOML string to JSON.
+#[tauri::command]
+fn convert_toml_to_json(toml_text: String) -> Result<String, String> {
+    let value: toml::Value =
+        toml::from_str(&toml_text).map_err(|e| format!("Invalid TOML: {}", e))?;
+    serde_json::to_string_pretty(&value).map_err(|e| e.to_string())
+}
+
 /// Syntax-highlight a code string, returning HTML with inline styles.
 #[tauri::command]
 fn highlight_code(code: String, language: Option<String>) -> Result<String, String> {
@@ -1431,6 +1485,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_items,
             search_items,
+            search_items_regex,
             paste_item,
             paste_as_plain_text,
             paste_raw_text,
@@ -1462,6 +1517,10 @@ pub fn run() {
             download_update,
             install_update,
             generate_qr_code,
+            convert_json_to_yaml,
+            convert_yaml_to_json,
+            convert_json_to_toml,
+            convert_toml_to_json,
             highlight_code,
             detect_language,
             fetch_link_preview,

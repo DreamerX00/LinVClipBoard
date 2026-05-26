@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "../i18n/index.jsx";
 
@@ -12,25 +12,27 @@ function QrModal({ text, onClose, onToast }) {
     const [error, setError] = useState(null);
 
     // Generate QR on mount
-    useState(() => {
+    useEffect(() => {
+        let cancelled = false;
         (async () => {
             try {
                 const dataUrl = await invoke("generate_qr_code", { text });
-                setQrDataUrl(dataUrl);
+                if (!cancelled) setQrDataUrl(dataUrl);
             } catch (e) {
-                setError(String(e));
+                if (!cancelled) setError(String(e));
             } finally {
-                setLoading(false);
+                if (!cancelled) setLoading(false);
             }
         })();
-    });
+        return () => { cancelled = true; };
+    }, [text]);
 
     const handleCopyQr = async () => {
-        if (!qrDataUrl) return;
+        if (!text) return;
         try {
-            // Copy the base64 data URL to clipboard
-            await invoke("paste_raw_text", { text: qrDataUrl });
-            onToast("✅ QR copied!");
+            // Copy the original text to clipboard (user expects the content, not the QR)
+            await invoke("paste_raw_text", { text });
+            onToast("✅ Copied!");
         } catch {
             onToast("❌ Failed");
         }

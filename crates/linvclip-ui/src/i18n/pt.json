@@ -8,7 +8,8 @@
     "emojis": "Emojis",
     "symbols": "Símbolos",
     "gifs": "GIFs",
-    "snippets": "Snippets"
+    "snippets": "Snippets",
+    "colors": "Cores"
   },
   "search": {
     "placeholder_clipboard": "Pesquisar histórico...",
@@ -293,6 +294,7 @@
     "tab_emojis": "Tab: Emojis",
     "tab_symbols": "Tab: Symbols",
     "tab_gifs": "Tab: GIFs",
-    "tab_snippets": "Tab: Snippets"
+    "tab_snippets": "Tab: Snippets",
+    "tab_colors": "Tab: Colors"
   }
 }

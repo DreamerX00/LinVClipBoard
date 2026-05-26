@@ -91,20 +91,25 @@ function GifPicker({ searchQuery, onToast }) {
         }
     }, [searchQuery]);
 
-    // Trigger fetch
+    // Trigger fetch with debounce
     useEffect(() => {
         if (showCategories) return;
         const timer = setTimeout(() => fetchGifs(true), 300);
         return () => clearTimeout(timer);
-    }, [searchQuery, activeCategory]);
+    }, [searchQuery, activeCategory, fetchGifs]);
 
-    // Infinite scroll
+    // Infinite scroll — use ref to avoid stale closure
+    const fetchGifsRef = useRef(fetchGifs);
+    useEffect(() => { fetchGifsRef.current = fetchGifs; }, [fetchGifs]);
+
     useEffect(() => {
         const sentinel = sentinelRef.current;
         if (!sentinel) return;
         const observer = new IntersectionObserver(
             (entries) => {
-                if (entries[0].isIntersecting && hasNext && !loading) fetchGifs(false);
+                if (entries[0].isIntersecting && hasNext && !loading) {
+                    fetchGifsRef.current(false);
+                }
             },
             { root: scrollRef.current, threshold: 0.1 }
         );

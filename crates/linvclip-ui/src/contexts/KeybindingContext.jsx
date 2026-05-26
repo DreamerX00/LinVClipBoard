@@ -167,12 +167,18 @@ export function KeybindingProvider({ children }) {
                 return null;
             }
 
-            // If focused on input (non-vim), only handle specific keys
+            // If focused on input (non-vim), let Ctrl shortcuts through, only block single keys
             if (isInput && !vimMode) {
                 if (e.key === "Escape") return { action: "close_window", preventDefault: true };
                 if ((e.ctrlKey || e.metaKey) && e.key === "a") return null; // let native select-all work in input
                 if ((e.ctrlKey || e.metaKey) && (e.key === "+" || e.key === "=" || e.key === "-" || e.key === "0")) {
                     return null; // let zoom through
+                }
+                if (e.ctrlKey || e.metaKey) {
+                    // Match against effective bindings for Ctrl combos (e.g., Ctrl+L, Ctrl+/)
+                    for (const [action, bound] of Object.entries(bindings)) {
+                        if (matchesCombo(e, bound)) return { action, preventDefault: true };
+                    }
                 }
                 return null;
             }

@@ -137,7 +137,7 @@ pub enum IpcRequest {
     /// List items with pagination.
     List { offset: u32, limit: u32 },
     /// Search items by query.
-    Search { query: String, limit: u32 },
+    Search { query: String, limit: u32, offset: u32 },
     /// Get a single item by ID.
     Get { id: String },
     /// Delete an item by ID.
@@ -192,6 +192,8 @@ pub enum IpcRequest {
         id: String,
         variables: HashMap<String, String>,
     },
+    /// Search items by regex pattern.
+    SearchRegex { pattern: String, limit: u32, offset: u32 },
     /// Update the preview_text of an item (e.g. after OCR).
     UpdatePreviewText { id: String, preview_text: String },
 }

@@ -1,6 +1,7 @@
 use crate::models::{ClipboardItem, ContentType, Snippet};
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
+use regex::Regex;
 use rusqlite::params;
 use std::path::Path;
 use thiserror::Error;
@@ -15,6 +16,8 @@ pub enum DbError {
     Pool(#[from] r2d2::Error),
     #[error("Item not found: {0}")]
     NotFound(String),
+    #[error("{0}")]
+    Other(String),
 }
 
 pub type DbResult<T> = std::result::Result<T, DbError>;
@@ -168,7 +171,7 @@ impl Database {
     }
 
     /// Search items using FTS5 full-text search.
-    pub fn search(&self, query: &str, limit: u32) -> DbResult<(Vec<ClipboardItem>, u64)> {
+    pub fn search(&self, query: &str, limit: u32, offset: u32) -> DbResult<(Vec<ClipboardItem>, u64)> {
         let conn = self.pool.get()?;
 
         // Escape ALL FTS5 special characters, then wrap as a phrase prefix query.
@@ -176,6 +179,9 @@ impl Database {
             .chars()
             .filter(|c| !matches!(c, '"' | '*' | '^' | ':' | '+' | '-' | '(' | ')' | '{' | '}'))
             .collect();
+        if sanitized.is_empty() {
+            return Ok((Vec::new(), 0));
+        }
         let fts_query = format!("\"{}\"*", sanitized);
 
         let total: u64 = conn.query_row(
@@ -192,14 +198,52 @@ impl Database {
              JOIN clipboard_fts f ON c.rowid = f.rowid
              WHERE clipboard_fts MATCH ?1
              ORDER BY c.pinned DESC, c.created_at DESC
-             LIMIT ?2",
+             LIMIT ?2 OFFSET ?3",
         )?;
 
         let items = stmt
-            .query_map(params![fts_query, limit], |row| Ok(row_to_item(row)))?
+            .query_map(params![fts_query, limit, offset], |row| Ok(row_to_item(row)))?
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok((items, total))
+    }
+
+    /// Search items using regex pattern matching in Rust.
+    pub fn search_regex(
+        &self,
+        pattern: &str,
+        limit: u32,
+        offset: u32,
+    ) -> DbResult<(Vec<ClipboardItem>, u64)> {
+        let re = Regex::new(pattern).map_err(|e| {
+            DbError::Other(format!("Invalid regex: {}", e))
+        })?;
+        let conn = self.pool.get()?;
+
+        let _total: u64 =
+            conn.query_row("SELECT COUNT(*) FROM clipboard_items", [], |row| {
+                row.get(0)
+            })?;
+
+        let mut stmt = conn.prepare(
+            "SELECT id, content_type, content, preview_text, created_at, pinned, app_source, checksum, size_bytes
+             FROM clipboard_items
+             ORDER BY pinned DESC, created_at DESC",
+        )?;
+
+        let all_items: Vec<ClipboardItem> = stmt
+            .query_map([], |row| Ok(row_to_item(row)))?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let matched: Vec<ClipboardItem> = all_items
+            .into_iter()
+            .filter(|item| re.is_match(&item.content) || re.is_match(&item.preview_text))
+            .skip(offset as usize)
+            .take(limit as usize)
+            .collect();
+
+        let matched_total = matched.len() as u64;
+        Ok((matched, matched_total))
     }
 
     /// Get a single item by ID.
@@ -350,25 +394,39 @@ impl Database {
 
         if total > config.max_items {
             let to_remove = total - config.max_items;
-            // Collect blob paths for image items that will be removed.
-            let mut blob_stmt = conn.prepare(
-                "SELECT content FROM clipboard_items
-                 WHERE pinned = 0 AND content_type = 'image'
-                 ORDER BY created_at ASC LIMIT ?1",
-            )?;
-            let blobs: Vec<String> = blob_stmt
-                .query_map(params![to_remove as i64], |row| row.get(0))?
-                .collect::<Result<Vec<_>, _>>()?;
 
-            conn.execute(
-                "DELETE FROM clipboard_items WHERE id IN (
-                    SELECT id FROM clipboard_items WHERE pinned = 0
-                    ORDER BY created_at ASC LIMIT ?1
-                )",
-                params![to_remove as i64],
-            )?;
+            // Collect the IDs of the oldest unpinned items to delete.
+            let ids: Vec<String> = {
+                let mut stmt = conn.prepare(
+                    "SELECT id FROM clipboard_items WHERE pinned = 0
+                     ORDER BY created_at ASC LIMIT ?1",
+                )?;
+                let res = stmt.query_map(params![to_remove as i64], |row| row.get(0))?
+                    .collect::<Result<Vec<_>, _>>()?;
+                res
+            };
 
-            // Remove blob files for evicted images.
+            // Collect blob paths only from the items we are about to delete.
+            let mut blobs: Vec<String> = Vec::new();
+            for id in &ids {
+                let path: Option<String> = conn
+                    .query_row(
+                        "SELECT content FROM clipboard_items
+                         WHERE id = ?1 AND content_type = 'image'",
+                        params![id],
+                        |row| row.get(0),
+                    )
+                    .ok();
+                if let Some(p) = path {
+                    blobs.push(p);
+                }
+            }
+
+            // Delete the items.
+            for id in &ids {
+                conn.execute("DELETE FROM clipboard_items WHERE id = ?1", params![id])?;
+            }
+
             for blob_path in &blobs {
                 let p = std::path::Path::new(blob_path);
                 if p.exists() {
@@ -379,34 +437,36 @@ impl Database {
             tracing::info!("Enforced limits: removed {} items", to_remove);
         }
 
-        // Remove expired items (use TimeDelta to avoid deprecation).
-        let expiry_delta = chrono::TimeDelta::try_days(config.expiry_days as i64)
-            .unwrap_or_else(|| chrono::TimeDelta::days(30));
-        let expiry_date = chrono::Utc::now() - expiry_delta;
+        // Remove expired items (0 = disabled).
+        if config.expiry_days > 0 {
+            let expiry_delta = chrono::TimeDelta::try_days(config.expiry_days as i64)
+                .unwrap_or_else(|| chrono::TimeDelta::days(30));
+            let expiry_date = chrono::Utc::now() - expiry_delta;
 
-        // Collect blob paths for expired images.
-        let mut exp_blob_stmt = conn.prepare(
-            "SELECT content FROM clipboard_items
-             WHERE pinned = 0 AND content_type = 'image' AND created_at < ?1",
-        )?;
-        let expired_blobs: Vec<String> = exp_blob_stmt
-            .query_map(params![expiry_date.to_rfc3339()], |row| row.get(0))?
-            .collect::<Result<Vec<_>, _>>()?;
+            // Collect blob paths for expired images.
+            let mut exp_blob_stmt = conn.prepare(
+                "SELECT content FROM clipboard_items
+                 WHERE pinned = 0 AND content_type = 'image' AND created_at < ?1",
+            )?;
+            let expired_blobs: Vec<String> = exp_blob_stmt
+                .query_map(params![expiry_date.to_rfc3339()], |row| row.get(0))?
+                .collect::<Result<Vec<_>, _>>()?;
 
-        let removed = conn.execute(
-            "DELETE FROM clipboard_items WHERE pinned = 0 AND created_at < ?1",
-            params![expiry_date.to_rfc3339()],
-        )?;
+            let removed = conn.execute(
+                "DELETE FROM clipboard_items WHERE pinned = 0 AND created_at < ?1",
+                params![expiry_date.to_rfc3339()],
+            )?;
 
-        for blob_path in &expired_blobs {
-            let p = std::path::Path::new(blob_path);
-            if p.exists() {
-                let _ = std::fs::remove_file(p);
+            for blob_path in &expired_blobs {
+                let p = std::path::Path::new(blob_path);
+                if p.exists() {
+                    let _ = std::fs::remove_file(p);
+                }
             }
-        }
 
-        if removed > 0 {
-            tracing::info!("Removed {} expired items", removed);
+            if removed > 0 {
+                tracing::info!("Removed {} expired items", removed);
+            }
         }
 
         Ok(())
@@ -674,7 +734,6 @@ impl Database {
 mod tests {
     use super::*;
     use crate::models::ContentType;
-    use std::path::PathBuf;
 
     fn create_test_db() -> (Database, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
@@ -728,7 +787,7 @@ mod tests {
         db.insert(&make_item("python scripting")).unwrap();
         db.insert(&make_item("rusty old car")).unwrap();
 
-        let (items, _) = db.search("rust", 10).unwrap();
+        let (items, _) = db.search("rust", 10, 0).unwrap();
         assert!(items.len() >= 1);
     }
 

@@ -16,7 +16,7 @@ function SnippetVarDialog({ snippet, onSubmit, onCancel }) {
             const parsed = JSON.parse(snippet.variables || "[]");
             const map = {};
             for (const v of parsed) {
-                if (v.name && v.default) map[v.name] = v.default;
+                if (v.name) map[v.name] = v.default ?? "";
             }
             return map;
         } catch {

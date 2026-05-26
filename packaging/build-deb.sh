@@ -31,9 +31,10 @@ if [ "$SKIP_BUILD" = false ]; then
     cd "${PROJECT_DIR}/crates/linvclip-ui"
     npm run build
 
-    echo "==> [3/4] Building Tauri app (linvclip-ui binary)..."
+    echo "==> [3/4] Preparing Tauri frontend assets..."
     cd "${PROJECT_DIR}/crates/linvclip-ui"
-    npx tauri build --bundles none
+    # Frontend was already built above; the Rust binary was built in step 1.
+    # Skip tauri bundling since we do our own .deb packaging.
 
     cd "${PROJECT_DIR}"
     echo "==> [4/4] Packaging ${PKG_NAME} ${VERSION}..."

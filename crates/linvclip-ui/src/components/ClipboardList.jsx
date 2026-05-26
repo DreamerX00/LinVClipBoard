@@ -6,15 +6,15 @@ import { detectSmartContent, hasSensitiveContent, redactText } from "../utils/sm
 /** Small hook to lazily load image thumbnails (#38). */
 function useImagePreview(item) {
     const [src, setSrc] = useState(null);
-    const loaded = useRef(false);
 
     useEffect(() => {
-        if (item.content_type !== "image" || loaded.current) return;
-        loaded.current = true;
+        if (item.content_type !== "image") { setSrc(null); return; }
+        let cancelled = false;
         invoke("get_image_base64", { path: item.content })
-            .then(setSrc)
-            .catch(() => {});
-    }, [item.content, item.content_type]);
+            .then((data) => { if (!cancelled) setSrc(data); })
+            .catch(() => { if (!cancelled) setSrc(null); });
+        return () => { cancelled = true; };
+    }, [item.id, item.content, item.content_type]);
 
     return src;
 }
@@ -60,7 +60,9 @@ function ClipboardList({
     };
 
     const formatTime = (dateStr) => {
+        if (!dateStr) return "--:--:--";
         const date = new Date(dateStr);
+        if (isNaN(date.getTime())) return "--:--:--";
         const hh = String(date.getHours()).padStart(2, "0");
         const mm = String(date.getMinutes()).padStart(2, "0");
         const ss = String(date.getSeconds()).padStart(2, "0");

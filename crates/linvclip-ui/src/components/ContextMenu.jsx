@@ -14,8 +14,19 @@ function ContextMenu({ item, x, y, onClose, onPin, onDelete, onPaste, onToast, o
     const [showTagInput, setShowTagInput] = useState(false);
     const tagInputRef = useRef(null);
 
-    // Position adjustment to stay in viewport
-    const [pos, setPos] = useState({ x, y });
+    // Position adjustment to stay in viewport (pre-compute to avoid visual jump)
+    const [pos, setPos] = useState(() => {
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+        const pad = 6;
+        const estW = 200;
+        const estH = 400;
+        let nx = x;
+        let ny = y;
+        if (nx + estW > vw - pad) nx = Math.max(pad, vw - estW - pad);
+        if (ny + estH > vh - pad) ny = Math.max(pad, vh - estH - pad);
+        return { x: nx, y: ny };
+    });
     const [flipSub, setFlipSub] = useState(false);
 
     useEffect(() => {
@@ -26,12 +37,9 @@ function ContextMenu({ item, x, y, onClose, onPin, onDelete, onPaste, onToast, o
         const pad = 6;
         let nx = x;
         let ny = y;
-        // Flip left if overflows right, clamp to pad from edges
         if (nx + rect.width > vw - pad) nx = Math.max(pad, vw - rect.width - pad);
-        // Flip up if overflows bottom
         if (ny + rect.height > vh - pad) ny = Math.max(pad, vh - rect.height - pad);
         setPos({ x: nx, y: ny });
-        // Check if submenus would overflow (menu right edge + ~160px submenu width)
         setFlipSub(nx + rect.width + 160 > vw);
     }, [x, y]);
 
@@ -135,6 +143,37 @@ function ContextMenu({ item, x, y, onClose, onPin, onDelete, onPaste, onToast, o
         const count = text.trim() ? text.trim().split(/\s+/).length : 0;
         const chars = text.length;
         onToast(`📊 ${t("toast.word_count")}: ${count} words, ${chars} chars`);
+        onClose();
+    };
+
+    // Format conversion detection
+    const isJson = useCallback(() => {
+        try { JSON.parse(text); return true; }
+        catch { return false; }
+    }, [text]);
+
+    const looksLikeYaml = useCallback(() => {
+        return /^[\w-]+:\s|^---\s/.test(text.trim());
+    }, [text]);
+
+    const looksLikeToml = useCallback(() => {
+        return /^\[[\w.]+]|^\w+\s*=/.test(text.trim());
+    }, [text]);
+
+    // Format converters
+    const handleJsonToYaml = () => copyTransformedFromInvoke("convert_json_to_yaml", { jsonText: text }, "YAML");
+    const handleYamlToJson = () => copyTransformedFromInvoke("convert_yaml_to_json", { yamlText: text }, "JSON");
+    const handleJsonToToml = () => copyTransformedFromInvoke("convert_json_to_toml", { jsonText: text }, "TOML");
+    const handleTomlToJson = () => copyTransformedFromInvoke("convert_toml_to_json", { tomlText: text }, "JSON");
+
+    const copyTransformedFromInvoke = async (cmd, args, label) => {
+        try {
+            const result = await invoke(cmd, args);
+            await invoke("paste_raw_text", { text: result });
+            onToast(`✅ ${t("toast.copied_as")} ${label}`);
+        } catch (err) {
+            onToast(`❌ ${String(err)}`);
+        }
         onClose();
     };
 
@@ -265,6 +304,27 @@ function ContextMenu({ item, x, y, onClose, onPin, onDelete, onPaste, onToast, o
                         <div className="ctx-submenu" role="menu">
                             <button className="ctx-item" onClick={handleJsonPrettify} role="menuitem">{t("context.json_prettify")}</button>
                             <button className="ctx-item" onClick={handleJsonMinify} role="menuitem">{t("context.json_minify")}</button>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* Convert submenu (text only, format-aware) */}
+            {isText && (isJson() || looksLikeYaml() || looksLikeToml()) && (
+                <div
+                    className={`ctx-submenu-wrap${openSub === "convert" ? " open" : ""}${flipSub ? " flip-left" : ""}`}
+                    onMouseEnter={() => setOpenSub("convert")}
+                    onMouseLeave={() => setOpenSub(null)}
+                >
+                    <button className="ctx-item ctx-has-sub" role="menuitem">
+                        <span className="ctx-icon">🔄</span> Convert <span className="ctx-arrow">▸</span>
+                    </button>
+                    {openSub === "convert" && (
+                        <div className="ctx-submenu" role="menu">
+                            {isJson() && <button className="ctx-item" onClick={handleJsonToYaml} role="menuitem">JSON → YAML</button>}
+                            {isJson() && <button className="ctx-item" onClick={handleJsonToToml} role="menuitem">JSON → TOML</button>}
+                            {looksLikeYaml() && <button className="ctx-item" onClick={handleYamlToJson} role="menuitem">YAML → JSON</button>}
+                            {looksLikeToml() && <button className="ctx-item" onClick={handleTomlToJson} role="menuitem">TOML → JSON</button>}
                         </div>
                     )}
                 </div>

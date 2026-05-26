@@ -24,8 +24,17 @@ function SnippetEditor({ snippet, folders, onSave, onCancel, onToast }) {
         if (!name.trim() || !content.trim()) return;
 
         const finalFolder = newFolder.trim() || folder;
+        // Preserve existing variable defaults when editing, use "" for new vars
+        const existingDefaults = (() => {
+            try {
+                const parsed = JSON.parse(snippet?.variables || "[]");
+                const map = {};
+                for (const v of parsed) if (v.name) map[v.name] = v.default ?? "";
+                return map;
+            } catch { return {}; }
+        })();
         const variables = JSON.stringify(
-            detectedVars.map((v) => ({ name: v, default: "" }))
+            detectedVars.map((v) => ({ name: v, default: existingDefaults[v] ?? "" }))
         );
 
         try {

@@ -167,7 +167,8 @@ pub async fn run(
                 }
             }
 
-            let mut had_failure = false;
+                let mut text_failed = false;
+            let mut image_failed = false;
 
             // Try to capture text
             match capture_text(&mut clipboard, &last_text_checksum) {
@@ -192,7 +193,7 @@ pub async fn run(
                 }
                 Ok(None) => {} // No change
                 Err(_) => {
-                    had_failure = true;
+                    text_failed = true;
                 }
             }
 
@@ -218,9 +219,13 @@ pub async fn run(
                 }
                 Ok(None) => {}
                 Err(_) => {
-                    had_failure = true;
+                    image_failed = true;
                 }
             }
+
+            // Only count as failure if BOTH text and image capture failed
+            // (one always "fails" when clipboard holds the other type).
+            let had_failure = text_failed && image_failed;
 
             // Reconnect clipboard on consecutive failures
             if had_failure {

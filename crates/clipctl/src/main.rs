@@ -32,6 +32,9 @@ enum Commands {
         /// Maximum results
         #[arg(short, long, default_value_t = 20)]
         limit: u32,
+        /// Pagination offset
+        #[arg(short, long, default_value_t = 0)]
+        offset: u32,
     },
     /// Paste an item back to clipboard
     Paste {
@@ -129,9 +132,10 @@ async fn main() {
             offset: *offset,
             limit: *limit,
         },
-        Commands::Search { query, limit } => IpcRequest::Search {
+        Commands::Search { query, limit, offset } => IpcRequest::Search {
             query: query.clone(),
             limit: *limit,
+            offset: *offset,
         },
         Commands::Paste { id } => IpcRequest::Paste { id: id.clone() },
         Commands::Pin { id } => IpcRequest::TogglePin { id: id.clone() },
@@ -277,14 +281,15 @@ fn format_time(dt: &DateTime<Utc>) -> String {
     let now = Utc::now();
     let diff = now.signed_duration_since(*dt);
 
-    if diff.num_seconds() < 60 {
+    let secs = diff.num_seconds().max(0);
+    if secs < 60 {
         "just now".to_string()
-    } else if diff.num_minutes() < 60 {
-        format!("{}m ago", diff.num_minutes())
-    } else if diff.num_hours() < 24 {
-        format!("{}h ago", diff.num_hours())
+    } else if secs < 3600 {
+        format!("{}m ago", secs / 60)
+    } else if secs < 86400 {
+        format!("{}h ago", secs / 3600)
     } else {
-        format!("{}d ago", diff.num_days())
+        format!("{}d ago", secs / 86400)
     }
 }
 

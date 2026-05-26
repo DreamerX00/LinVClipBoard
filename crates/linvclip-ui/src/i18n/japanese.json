@@ -8,7 +8,8 @@
     "emojis": "絵文字",
     "symbols": "記号",
     "gifs": "GIF",
-    "snippets": "スニペット"
+    "snippets": "スニペット",
+    "colors": "色"
   },
   "search": {
     "placeholder_clipboard": "クリップボード履歴を検索...",
@@ -293,6 +294,7 @@
     "tab_emojis": "Tab: Emojis",
     "tab_symbols": "Tab: Symbols",
     "tab_gifs": "Tab: GIFs",
-    "tab_snippets": "Tab: Snippets"
+    "tab_snippets": "Tab: Snippets",
+    "tab_colors": "Tab: Colors"
   }
 }

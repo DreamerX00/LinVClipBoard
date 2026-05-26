@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, lazy, Suspense } from "react";
 import { createPortal } from "react-dom";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
@@ -18,9 +18,10 @@ import SettingsPanel from "./components/SettingsPanel";
 import ConfirmDialog from "./components/ConfirmDialog";
 import ContextMenu from "./components/ContextMenu";
 import QrModal from "./components/QrModal";
-import PreviewPane from "./components/PreviewPane";
+const PreviewPane = lazy(() => import("./components/PreviewPane"));
 import SelectionBar from "./components/SelectionBar";
 import SnippetPicker from "./components/SnippetPicker";
+import ColorPicker from "./components/ColorPicker";
 import CheatSheet from "./components/CheatSheet";
 import { useKeybindings } from "./contexts/KeybindingContext.jsx";
 
@@ -34,13 +35,19 @@ function App() {
     const [items, setItems] = useState([]);
     const [total, setTotal] = useState(0);
     const [searchQuery, setSearchQuery] = useState("");
+    const [isRegex, setIsRegex] = useState(false);
     const [loading, setLoading] = useState(false);
+    const loadingRef = useRef(false);
     const [status, setStatus] = useState(null);
     const [selectedIndex, setSelectedIndex] = useState(0);
     const [toast, setToast] = useState(null);
     const [showSettings, setShowSettings] = useState(false);
     const [showConfirm, setShowConfirm] = useState(false);
-    const [theme, setTheme] = useState(() => localStorage.getItem("theme") || "dark");
+    const [theme, setTheme] = useState(() => {
+        const stored = localStorage.getItem("theme");
+        if (stored) return stored;
+        return window.matchMedia?.("(prefers-color-scheme: dark)")?.matches ? "dark" : "light";
+    });
     const [ctxMenu, setCtxMenu] = useState(null); // { item, x, y }
     const [qrText, setQrText] = useState(null); // text to generate QR for
     const [snippetInitContent, setSnippetInitContent] = useState(null);
@@ -104,48 +111,85 @@ function App() {
     // always sees current state without needing to re-attach the listener.
     const itemsRef = useRef(items);
     const selectedIndexRef = useRef(selectedIndex);
+    const searchQueryRef = useRef(searchQuery);
     useEffect(() => { itemsRef.current = items; }, [items]);
     useEffect(() => { selectedIndexRef.current = selectedIndex; }, [selectedIndex]);
+    useEffect(() => { searchQueryRef.current = searchQuery; }, [searchQuery]);
 
     const fetchItems = useCallback(
-        async (reset = false) => {
-            if (loading) return;
-            setLoading(true);
+        async (reset = false, preserveLength = false) => {
+            if (loadingRef.current) return;
+            loadingRef.current = true;
+            // Don't show loading spinner for background auto-refreshes
+            if (!preserveLength) setLoading(true);
             try {
+                let currentOffset = offset.current;
+                let fetchLimit = LIMIT;
+
                 if (reset) {
-                    offset.current = 0;
+                    if (preserveLength && itemsRef.current.length > LIMIT) {
+                        // Background refresh: preserve all loaded items
+                        fetchLimit = itemsRef.current.length;
+                        currentOffset = 0;
+                    } else {
+                        currentOffset = 0;
+                        offset.current = 0;
+                    }
                 }
 
                 let result;
                 if (searchQuery.trim()) {
-                    result = await invoke("search_items", {
-                        query: searchQuery,
-                        limit: LIMIT,
-                    });
+                    if (isRegex) {
+                        result = await invoke("search_items_regex", {
+                            pattern: searchQuery,
+                            limit: fetchLimit,
+                            offset: currentOffset,
+                        });
+                    } else {
+                        result = await invoke("search_items", {
+                            query: searchQuery,
+                            limit: fetchLimit,
+                            offset: currentOffset,
+                        });
+                    }
                 } else {
                     result = await invoke("get_items", {
-                        offset: offset.current,
-                        limit: LIMIT,
+                        offset: currentOffset,
+                        limit: fetchLimit,
                     });
                 }
 
                 if (result) {
-                    if (reset || offset.current === 0) {
+                    if (reset) {
                         setItems(result.items || []);
+                        if (preserveLength) {
+                            offset.current = (result.items || []).length;
+                        } else {
+                            offset.current = fetchLimit;
+                        }
                     } else {
-                        setItems((prev) => [...prev, ...(result.items || [])]);
+                        setItems((prev) => {
+                            const newItems = result.items || [];
+                            const seen = new Set(prev.map(i => i.id));
+                            const additions = newItems.filter(i => !seen.has(i.id));
+                            return [...prev, ...additions];
+                        });
+                        offset.current += fetchLimit;
                     }
                     setTotal(result.total || 0);
-                    offset.current += LIMIT;
                 }
             } catch (err) {
                 console.error("Failed to fetch items:", err);
             } finally {
+                loadingRef.current = false;
                 setLoading(false);
             }
         },
-        [searchQuery, loading]
+        [searchQuery, isRegex]
     );
+
+    const fetchItemsRef = useRef(fetchItems);
+    useEffect(() => { fetchItemsRef.current = fetchItems; }, [fetchItems]);
 
     // Initial load
     // Load app config for smart features
@@ -161,8 +205,8 @@ function App() {
         let unlisten;
         const setupListener = async () => {
             unlisten = await listen("clipboard-updated", () => {
-                if (!searchQuery.trim()) {
-                    fetchItems(true);
+                if (!searchQueryRef.current.trim()) {
+                    fetchItemsRef.current(true, true);
                 }
                 fetchStatus();
             });
@@ -171,8 +215,8 @@ function App() {
 
         // Fallback polling every 5s in case events are missed
         const interval = setInterval(() => {
-            if (!searchQuery.trim()) {
-                fetchItems(true);
+            if (!searchQueryRef.current.trim()) {
+                fetchItemsRef.current(true, true);
             }
             fetchStatus();
         }, 5000);
@@ -183,13 +227,13 @@ function App() {
         };
     }, []);
 
-    // Re-fetch on search change
+    // Re-fetch on search change or regex toggle
     useEffect(() => {
         const timer = setTimeout(() => {
             fetchItems(true);
         }, 300);
         return () => clearTimeout(timer);
-    }, [searchQuery]);
+    }, [searchQuery, isRegex]);
 
     const fetchStatus = async () => {
         try {
@@ -200,9 +244,11 @@ function App() {
         }
     };
 
+    const toastTimer = useRef(null);
     const showToast = (message) => {
         setToast(message);
-        setTimeout(() => setToast(null), 700);
+        if (toastTimer.current) clearTimeout(toastTimer.current);
+        toastTimer.current = setTimeout(() => setToast(null), 700);
     };
 
     const hideWindow = async () => {
@@ -214,12 +260,14 @@ function App() {
         }
     };
 
+    const pasteTimer = useRef(null);
     const handlePaste = async (id) => {
         try {
             await invoke("paste_item", { id });
             showToast("✅ Copied!");
             // Auto-close after showing feedback
-            setTimeout(() => hideWindow(), 500);
+            if (pasteTimer.current) clearTimeout(pasteTimer.current);
+            pasteTimer.current = setTimeout(() => hideWindow(), 500);
         } catch (err) {
             showToast("❌ Failed");
             console.error("Paste failed:", err);
@@ -364,10 +412,21 @@ function App() {
 
     // ─── Global keyboard handler via keybinding context ───
     // Uses refs so the handler always sees fresh state without re-attaching.
+    const showSettingsRef = useRef(showSettings);
+    const showCheatSheetRef = useRef(showCheatSheet);
+    const showConfirmRef = useRef(showConfirm);
+    const qrTextRef = useRef(qrText);
+    const ctxMenuRef = useRef(ctxMenu);
+    useEffect(() => { showSettingsRef.current = showSettings; }, [showSettings]);
+    useEffect(() => { showCheatSheetRef.current = showCheatSheet; }, [showCheatSheet]);
+    useEffect(() => { showConfirmRef.current = showConfirm; }, [showConfirm]);
+    useEffect(() => { qrTextRef.current = qrText; }, [qrText]);
+    useEffect(() => { ctxMenuRef.current = ctxMenu; }, [ctxMenu]);
+
     useEffect(() => {
         const handleKeyDown = (e) => {
-            // Don't intercept keys when settings, cheat sheet, or modals are open
-            if (showCheatSheet) return;
+            // Don't intercept keys when modals are open
+            if (showCheatSheetRef.current || showSettingsRef.current || showConfirmRef.current || qrTextRef.current || ctxMenuRef.current) return;
 
             const result = resolveAction(e);
             if (!result) return;
@@ -457,6 +516,7 @@ function App() {
                 case "tab_symbols": setActiveTab("symbols"); break;
                 case "tab_gifs": setActiveTab("gifs"); break;
                 case "tab_snippets": setActiveTab("snippets"); break;
+                case "tab_colors": setActiveTab("colors"); break;
                 case "show_cheatsheet":
                     setShowCheatSheet(true);
                     break;
@@ -478,7 +538,7 @@ function App() {
 
         document.addEventListener("keydown", handleKeyDown, true);
         return () => document.removeEventListener("keydown", handleKeyDown, true);
-    }, [resolveAction, zoomIn, zoomOut, zoomReset, showCheatSheet]);
+    }, [resolveAction, zoomIn, zoomOut, zoomReset]);
 
     // Clear search when switching tabs
     const handleTabChange = (tab) => {
@@ -521,13 +581,17 @@ function App() {
 
                 <TabBar activeTab={activeTab} onTabChange={handleTabChange} />
 
-                <SearchBar
-                    value={searchQuery}
-                    onChange={setSearchQuery}
-                    placeholder={searchPlaceholder}
-                    onFocus={handleSearchFocus}
-                    onBlur={handleSearchBlur}
-                />
+                {activeTab !== "colors" && (
+                    <SearchBar
+                        value={searchQuery}
+                        onChange={setSearchQuery}
+                        placeholder={searchPlaceholder}
+                        onFocus={handleSearchFocus}
+                        onBlur={handleSearchBlur}
+                        isRegex={isRegex && activeTab === "clipboard"}
+                        onToggleRegex={() => setIsRegex((r) => !r)}
+                    />
+                )}
 
                 <main role="main" aria-label={t("tabs." + activeTab)}>
                     <div className="main-split">
@@ -573,14 +637,19 @@ function App() {
                     {activeTab === "snippets" && (
                         <SnippetPicker searchQuery={searchQuery} onToast={showToast} initialContent={snippetInitContent} onConsumeInitContent={() => setSnippetInitContent(null)} />
                     )}
+                    {activeTab === "colors" && (
+                        <ColorPicker onToast={showToast} />
+                    )}
                         </div>
                         {showPreview && activeTab === "clipboard" && (
-                            <PreviewPane
-                                item={previewItem}
-                                onPaste={handlePaste}
-                                onToast={showToast}
-                                onItemUpdate={handleItemUpdate}
-                            />
+                            <Suspense fallback={<div className="preview-pane-loading">Loading…</div>}>
+                                <PreviewPane
+                                    item={previewItem}
+                                    onPaste={handlePaste}
+                                    onToast={showToast}
+                                    onItemUpdate={handleItemUpdate}
+                                />
+                            </Suspense>
                         )}
                     </div>
                 </main>

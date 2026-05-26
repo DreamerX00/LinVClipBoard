@@ -6,6 +6,7 @@ const TABS = [
     { id: "symbols",   icon: "Σ",  labelKey: "tabs.symbols" },
     { id: "gifs",      icon: "🎞️", labelKey: "tabs.gifs" },
     { id: "snippets",  icon: "📝", labelKey: "tabs.snippets" },
+    { id: "colors",    icon: "🎨", labelKey: "tabs.colors" },
 ];
 
 function TabBar({ activeTab, onTabChange }) {

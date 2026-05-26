@@ -1,9 +1,8 @@
 import { useRef, useEffect } from "react";
 
-function SearchBar({ value, onChange, placeholder, onFocus, onBlur }) {
+function SearchBar({ value, onChange, placeholder, onFocus, onBlur, isRegex, onToggleRegex }) {
     const inputRef = useRef(null);
 
-    // Auto-focus on mount
     useEffect(() => {
         if (inputRef.current) {
             inputRef.current.focus();
@@ -27,6 +26,14 @@ function SearchBar({ value, onChange, placeholder, onFocus, onBlur }) {
                 aria-label={placeholder || "Search"}
                 role="searchbox"
             />
+            <button
+                className={`search-regex-toggle${isRegex ? " active" : ""}`}
+                onClick={onToggleRegex}
+                title={isRegex ? "Regex mode: ON" : "Regex mode: OFF"}
+                aria-label="Toggle regex search"
+            >
+                .*
+            </button>
             {value && (
                 <button
                     className="search-clear"

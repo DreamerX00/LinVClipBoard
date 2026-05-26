@@ -1,6 +1,6 @@
 [package]
 name = "linvclip-ui"
-version = "2.4.0"
+version = "2.4.1"
 edition = "2021"
 
 [lib]
@@ -28,3 +28,5 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 syntect = { version = "5", default-features = false, features = ["default-fancy"] }
 scraper = "0.22"
 html2text = "0.14"
+yaml_serde = "0.10"
+toml = "1.1"

@@ -33,8 +33,8 @@ impl ClipboardDbusService {
         }
     }
 
-    async fn search(&self, query: &str, limit: u32) -> String {
-        match self.db.search(query, limit) {
+    async fn search(&self, query: &str, limit: u32, offset: u32) -> String {
+        match self.db.search(query, limit, offset) {
             Ok((items, total)) => serde_json::json!({
                 "items": items,
                 "total": total,

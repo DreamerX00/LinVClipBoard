@@ -107,10 +107,21 @@ async fn handle_request(
             },
         },
 
-        IpcRequest::Search { query, limit } => match db.search(&query, limit) {
+        IpcRequest::Search { query, limit, offset } => match db.search(&query, limit, offset) {
             Ok((items, total)) => IpcResponse::Items { items, total },
             Err(e) => IpcResponse::Error {
                 message: format!("Search failed: {}", e),
+            },
+        },
+
+        IpcRequest::SearchRegex {
+            pattern,
+            limit,
+            offset,
+        } => match db.search_regex(&pattern, limit, offset) {
+            Ok((items, total)) => IpcResponse::Items { items, total },
+            Err(e) => IpcResponse::Error {
+                message: format!("Regex search failed: {}", e),
             },
         },
 
@@ -140,9 +151,12 @@ async fn handle_request(
         },
 
         IpcRequest::BulkPin { ids, pinned } => match db.bulk_pin(&ids, pinned) {
-            Ok(count) => IpcResponse::Ok {
-                message: format!("Pinned {} items", count),
-            },
+            Ok(count) => {
+                let action = if pinned { "Pinned" } else { "Unpinned" };
+                IpcResponse::Ok {
+                    message: format!("{} {} items", action, count),
+                }
+            }
             Err(e) => IpcResponse::Error {
                 message: format!("Bulk pin failed: {}", e),
             },

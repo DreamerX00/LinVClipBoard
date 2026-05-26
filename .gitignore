@@ -29,3 +29,10 @@ klipy.key
 
 # Upgrade plan (internal planning docs)
 upgrade-plan/
+
+# Multi-platform porting plan (internal)
+multiPlatformPlan.md
+
+# Deb packaging artifacts (standalone scripts, not used by build-deb.sh)
+/install/deb-desktop.desktop
+/install/deb-postinst.sh
