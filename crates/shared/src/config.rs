@@ -190,15 +190,23 @@ impl AppConfig {
         Self::data_dir().join("clipboard.db")
     }
 
-    /// Path to the Unix domain socket.
+    /// Path to the IPC transport endpoint.
+    /// Unix: Unix domain socket at `/run/user/<uid>/linvclip.sock` or `/tmp/linvclip-<uid>.sock`.
+    /// Windows: Named pipe at `\\.\pipe\LinVClipBoard`.
     pub fn socket_path() -> PathBuf {
-        let uid = unsafe { libc::getuid() };
-        let run_dir = PathBuf::from(format!("/run/user/{}", uid));
-        if run_dir.exists() {
-            run_dir.join("linvclip.sock")
-        } else {
-            // Fallback to /tmp
-            PathBuf::from(format!("/tmp/linvclip-{}.sock", uid))
+        #[cfg(unix)]
+        {
+            let uid = unsafe { libc::getuid() };
+            let run_dir = PathBuf::from(format!("/run/user/{}", uid));
+            if run_dir.exists() {
+                run_dir.join("linvclip.sock")
+            } else {
+                PathBuf::from(format!("/tmp/linvclip-{}.sock", uid))
+            }
+        }
+        #[cfg(windows)]
+        {
+            PathBuf::from(r"\\.\pipe\LinVClipBoard")
         }
     }
 

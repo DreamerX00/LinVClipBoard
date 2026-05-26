@@ -171,7 +171,12 @@ impl Database {
     }
 
     /// Search items using FTS5 full-text search.
-    pub fn search(&self, query: &str, limit: u32, offset: u32) -> DbResult<(Vec<ClipboardItem>, u64)> {
+    pub fn search(
+        &self,
+        query: &str,
+        limit: u32,
+        offset: u32,
+    ) -> DbResult<(Vec<ClipboardItem>, u64)> {
         let conn = self.pool.get()?;
 
         // Escape ALL FTS5 special characters, then wrap as a phrase prefix query.
@@ -202,7 +207,9 @@ impl Database {
         )?;
 
         let items = stmt
-            .query_map(params![fts_query, limit, offset], |row| Ok(row_to_item(row)))?
+            .query_map(params![fts_query, limit, offset], |row| {
+                Ok(row_to_item(row))
+            })?
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok((items, total))
@@ -215,15 +222,12 @@ impl Database {
         limit: u32,
         offset: u32,
     ) -> DbResult<(Vec<ClipboardItem>, u64)> {
-        let re = Regex::new(pattern).map_err(|e| {
-            DbError::Other(format!("Invalid regex: {}", e))
-        })?;
+        let re =
+            Regex::new(pattern).map_err(|e| DbError::Other(format!("Invalid regex: {}", e)))?;
         let conn = self.pool.get()?;
 
         let _total: u64 =
-            conn.query_row("SELECT COUNT(*) FROM clipboard_items", [], |row| {
-                row.get(0)
-            })?;
+            conn.query_row("SELECT COUNT(*) FROM clipboard_items", [], |row| row.get(0))?;
 
         let mut stmt = conn.prepare(
             "SELECT id, content_type, content, preview_text, created_at, pinned, app_source, checksum, size_bytes
@@ -401,7 +405,8 @@ impl Database {
                     "SELECT id FROM clipboard_items WHERE pinned = 0
                      ORDER BY created_at ASC LIMIT ?1",
                 )?;
-                let res = stmt.query_map(params![to_remove as i64], |row| row.get(0))?
+                let res = stmt
+                    .query_map(params![to_remove as i64], |row| row.get(0))?
                     .collect::<Result<Vec<_>, _>>()?;
                 res
             };

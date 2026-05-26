@@ -167,7 +167,7 @@ pub async fn run(
                 }
             }
 
-                let mut text_failed = false;
+            let mut text_failed = false;
             let mut image_failed = false;
 
             // Try to capture text

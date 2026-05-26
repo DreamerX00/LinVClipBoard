@@ -4,6 +4,7 @@ members = [
     "crates/shared",
     "crates/clipd",
     "crates/clipctl",
+    "crates/platform",
     "crates/linvclip-ui/src-tauri",
 ]
 
@@ -12,4 +13,13 @@ version = "3.0.0"
 edition = "2021"
 license = "MIT"
 authors = ["LinVClipBoard Contributors"]
-description = "A superior Win+V equivalent clipboard platform for Linux"
+description = "A superior Win+V equivalent clipboard platform for Linux and Windows"
+repository = "https://github.com/anomalyco/LinVClipBoard"
+
+[workspace.metadata.windows]
+# Minimum Windows version: Windows 10 1809
+min-windows-version = "10.0.17763"
+target-x86_64 = "x86_64-pc-windows-msvc"
+target-aarch64 = "aarch64-pc-windows-msvc"
+installer-type = "nsis"
+

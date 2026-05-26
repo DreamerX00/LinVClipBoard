@@ -107,7 +107,11 @@ async fn handle_request(
             },
         },
 
-        IpcRequest::Search { query, limit, offset } => match db.search(&query, limit, offset) {
+        IpcRequest::Search {
+            query,
+            limit,
+            offset,
+        } => match db.search(&query, limit, offset) {
             Ok((items, total)) => IpcResponse::Items { items, total },
             Err(e) => IpcResponse::Error {
                 message: format!("Search failed: {}", e),

@@ -29,7 +29,11 @@ fn roundtrip_search() {
     let json = serde_json::to_string(&req).unwrap();
     let parsed: IpcRequest = serde_json::from_str(&json).unwrap();
     match parsed {
-        IpcRequest::Search { query, limit, offset } => {
+        IpcRequest::Search {
+            query,
+            limit,
+            offset,
+        } => {
             assert_eq!(query, "hello world");
             assert_eq!(limit, 10);
             assert_eq!(offset, 0);

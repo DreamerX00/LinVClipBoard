@@ -24,13 +24,17 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow = "1"
 dirs = "5"
-libc = "0.2"
+platform = { path = "../platform" }
 image = { version = "0.25", default-features = false, features = ["png"] }
 uuid = { version = "1", features = ["v4"] }
-notify = { version = "6", features = ["macos_fsevent"] }
 html2text = "0.14"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+notify = { version = "6", features = ["macos_fsevent"] }
 wl-clipboard-rs = "0.9"
 zbus = { version = "4", optional = true }
+arboard = { version = "3", features = ["wayland-data-control"] }
 
 [features]
 default = []

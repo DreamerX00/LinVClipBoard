@@ -83,7 +83,11 @@ async fn get_items(offset: u32, limit: u32) -> Result<ItemsResult, String> {
 #[tauri::command]
 async fn search_items(query: String, limit: u32, offset: u32) -> Result<ItemsResult, String> {
     let socket = AppConfig::socket_path();
-    let request = IpcRequest::Search { query, limit, offset };
+    let request = IpcRequest::Search {
+        query,
+        limit,
+        offset,
+    };
 
     match send_request(&socket, &request).await {
         Ok(IpcResponse::Items { items, total }) => Ok(ItemsResult { items, total }),

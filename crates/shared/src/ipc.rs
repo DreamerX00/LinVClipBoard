@@ -1,13 +1,16 @@
 use crate::models::{IpcRequest, IpcResponse};
 use std::path::Path;
+#[cfg(unix)]
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+#[cfg(unix)]
 use tokio::net::UnixStream;
 
 /// Length-prefix frame size (4 bytes, big-endian u32).
 const FRAME_HEADER_SIZE: usize = 4;
 const MAX_MESSAGE_SIZE: usize = 64 * 1024 * 1024; // 64MB max message
 
-/// Send an IPC message over a Unix stream with length-prefix framing.
+/// Send an IPC message over a stream with length-prefix framing.
+#[cfg(unix)]
 pub async fn send_message<T: serde::Serialize>(
     stream: &mut UnixStream,
     message: &T,
@@ -22,7 +25,8 @@ pub async fn send_message<T: serde::Serialize>(
     Ok(())
 }
 
-/// Receive an IPC message from a Unix stream with length-prefix framing.
+/// Receive an IPC message from a stream with length-prefix framing.
+#[cfg(unix)]
 pub async fn recv_message<T: serde::de::DeserializeOwned>(
     stream: &mut UnixStream,
 ) -> std::io::Result<T> {
@@ -45,6 +49,7 @@ pub async fn recv_message<T: serde::de::DeserializeOwned>(
 }
 
 /// Connect to the daemon and send a request, returning the response.
+#[cfg(unix)]
 pub async fn send_request(
     socket_path: &Path,
     request: &IpcRequest,
@@ -52,4 +57,16 @@ pub async fn send_request(
     let mut stream = UnixStream::connect(socket_path).await?;
     send_message(&mut stream, request).await?;
     recv_message(&mut stream).await
+}
+
+// Windows stub — real IPC uses Named Pipes via the `platform` crate.
+#[cfg(windows)]
+pub async fn send_request(
+    _socket_path: &Path,
+    _request: &IpcRequest,
+) -> std::io::Result<IpcResponse> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "Windows IPC not yet available. Use the platform crate when ported.",
+    ))
 }

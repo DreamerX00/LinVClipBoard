@@ -33,6 +33,16 @@ upgrade-plan/
 # Multi-platform porting plan (internal)
 multiPlatformPlan.md
 
+# Windows
+*.exe
+*.msi
+*.dll
+*.pdb
+target/windows/
+*.nsi
+*.nsh
+installer-logs/
+
 # Deb packaging artifacts (standalone scripts, not used by build-deb.sh)
 /install/deb-desktop.desktop
 /install/deb-postinst.sh

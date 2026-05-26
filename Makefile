@@ -1,4 +1,5 @@
-.PHONY: build build-ui deb rpm appimage install clean check test lint completions manpages
+.PHONY: build build-ui deb rpm appimage install clean check test lint completions manpages \
+        build-win build-win-cross build-win-ui
 
 build:
 	cargo build --release -p clipd -p clipctl
@@ -37,6 +38,19 @@ completions: build
 manpages: build
 	mkdir -p target/man
 	target/release/clipctl manpage target/man
+
+# ─── Windows cross-compilation targets ──────────────────────────────────
+
+build-win:
+	cargo build --target x86_64-pc-windows-msvc --release -p clipd -p clipctl
+
+build-win-cross:
+	cargo xwin build --target x86_64-pc-windows-msvc --release -p clipd -p clipctl
+
+build-win-ui: build-win-cross
+	cp target/x86_64-pc-windows-msvc/release/clipd.exe   crates/linvclip-ui/src-tauri/resources/
+	cp target/x86_64-pc-windows-msvc/release/clipctl.exe crates/linvclip-ui/src-tauri/resources/
+	cd crates/linvclip-ui && npx tauri build --target x86_64-pc-windows-msvc
 
 install: build
 	install -Dm755 target/release/clipd   $(DESTDIR)$(HOME)/.local/bin/clipd

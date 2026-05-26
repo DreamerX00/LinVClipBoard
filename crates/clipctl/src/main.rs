@@ -132,7 +132,11 @@ async fn main() {
             offset: *offset,
             limit: *limit,
         },
-        Commands::Search { query, limit, offset } => IpcRequest::Search {
+        Commands::Search {
+            query,
+            limit,
+            offset,
+        } => IpcRequest::Search {
             query: query.clone(),
             limit: *limit,
             offset: *offset,
