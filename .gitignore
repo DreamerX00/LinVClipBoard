@@ -36,6 +36,7 @@ multiPlatformPlan.md
 # Windows
 *.exe
 *.msi
+!resources/.gitkeep
 *.dll
 *.pdb
 target/windows/

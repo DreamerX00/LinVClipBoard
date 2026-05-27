@@ -55,7 +55,7 @@ pub struct UpdateInfo {
     pub latest_version: String,
     pub release_url: String,
     pub release_notes: String,
-    pub deb_download_url: String,
+    pub download_url: String,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -143,40 +143,47 @@ async fn paste_raw_text(text: String) -> Result<String, String> {
     Ok("ok".to_string())
 }
 
-/// Type text into the previously focused application (like the Windows emoji panel).
+/// Type text into the previously focused application.
 ///
 /// 1. Hides the window so focus returns to the previous app.
-/// 2. Tries to type the text using `wtype` (Wayland) / `xdotool` / `ydotool`.
-/// 3. Falls back to clipboard copy if no typing tool is available.
+/// 2. Types the text using platform input simulation (enigo/SendInput on Windows,
+///    wtype/xdotool/ydotool on Linux).
+/// 3. Falls back to clipboard copy if typing is unavailable.
 ///
 /// Returns `"typed"` on success, `"copied"` when falling back to clipboard.
 #[tauri::command]
 async fn type_text(text: String, app: tauri::AppHandle) -> Result<String, String> {
-    // Hide window → focus returns to the previous application
     if let Some(win) = app.get_webview_window("main") {
         let _ = win.hide();
     }
 
-    // Allow the compositor to transfer focus
     tokio::time::sleep(std::time::Duration::from_millis(120)).await;
 
-    // Try direct typing first (doesn't touch the clipboard)
-    if try_type_direct(&text) {
+    #[cfg(windows)]
+    {
+        let sim = platform::WindowsInputSimulator::new();
+        let _ = sim.type_text(&text);
         return Ok("typed".to_string());
     }
 
-    // Fallback: copy to clipboard, then try simulating Ctrl+V
-    let mut clipboard = arboard::Clipboard::new().map_err(|e| format!("Clipboard error: {}", e))?;
-    clipboard
-        .set_text(&text)
-        .map_err(|e| format!("Failed to set clipboard: {}", e))?;
+    #[cfg(unix)]
+    {
+        if try_type_direct(&text) {
+            return Ok("typed".to_string());
+        }
 
-    if try_paste_shortcut() {
-        return Ok("typed".to_string());
+        let mut clipboard =
+            arboard::Clipboard::new().map_err(|e| format!("Clipboard error: {}", e))?;
+        clipboard
+            .set_text(&text)
+            .map_err(|e| format!("Failed to set clipboard: {}", e))?;
+
+        if try_paste_shortcut() {
+            return Ok("typed".to_string());
+        }
+
+        Ok("copied".to_string())
     }
-
-    // Last resort: text is on the clipboard, user can Ctrl+V manually
-    Ok("copied".to_string())
 }
 
 /// Try to type text directly into the currently focused window.
@@ -504,29 +511,37 @@ async fn extract_text_from_image(
 
     let language = lang.unwrap_or_else(|| "eng".to_string());
 
-    let output = tokio::process::Command::new("tesseract")
-        .args([&image_path, "stdout", "-l", &language])
-        .output()
-        .await
-        .map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                "Tesseract OCR is not installed. Install it with: sudo apt install tesseract-ocr tesseract-ocr-eng".to_string()
-            } else {
-                format!("OCR failed: {}", e)
-            }
-        })?;
+    #[cfg(unix)]
+    {
+        let output = tokio::process::Command::new("tesseract")
+            .args([&image_path, "stdout", "-l", &language])
+            .output()
+            .await
+            .map_err(|e| {
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    "Tesseract OCR is not installed. Install it with: sudo apt install tesseract-ocr tesseract-ocr-eng".to_string()
+                } else {
+                    format!("OCR failed: {}", e)
+                }
+            })?;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("OCR failed: {}", stderr.trim()));
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("OCR failed: {}", stderr.trim()));
+        }
+
+        let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if text.is_empty() {
+            return Err("No text found in image".to_string());
+        }
+
+        Ok(text)
     }
 
-    let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if text.is_empty() {
-        return Err("No text found in image".to_string());
+    #[cfg(windows)]
+    {
+        Err("OCR via Tesseract is not available on Windows. Use the Windows Snipping Tool or a third-party OCR application.".to_string())
     }
-
-    Ok(text)
 }
 
 /// Update the preview_text of an item via the daemon (makes OCR text searchable).
@@ -547,6 +562,55 @@ async fn update_preview_text(id: String, preview_text: String) -> Result<Clipboa
 #[tauri::command]
 fn get_app_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
+}
+
+/// Get the path to the clipd executable (same directory as this GUI).
+#[cfg_attr(unix, allow(dead_code))]
+fn get_clipd_path() -> std::path::PathBuf {
+    let mut path = std::env::current_exe().unwrap_or_default();
+    path.set_file_name("clipd");
+    path.set_extension("exe");
+    path
+}
+
+/// Set whether clipd launches at user login (Windows: HKCU\...\Run).
+#[tauri::command]
+async fn set_launch_at_startup(enabled: bool) -> Result<(), String> {
+    set_launch_at_startup_impl(enabled)
+}
+
+#[cfg(windows)]
+fn set_launch_at_startup_impl(enabled: bool) -> Result<(), String> {
+    let mgr = platform::WindowsServiceManager::new();
+    let clipd_path = get_clipd_path().to_string_lossy().to_string();
+    if enabled {
+        mgr.register_autostart(&clipd_path)
+    } else {
+        mgr.unregister_autostart()
+    }
+    .map_err(|e| e.to_string())
+}
+
+#[cfg(unix)]
+fn set_launch_at_startup_impl(_enabled: bool) -> Result<(), String> {
+    Err("Autostart management not available on this platform. Use systemctl --user.".to_string())
+}
+
+/// Check whether clipd launches at user login.
+#[tauri::command]
+async fn is_launch_at_startup_enabled() -> Result<bool, String> {
+    is_launch_at_startup_enabled_impl()
+}
+
+#[cfg(windows)]
+fn is_launch_at_startup_enabled_impl() -> Result<bool, String> {
+    let mgr = platform::WindowsServiceManager::new();
+    mgr.is_autostart_enabled().map_err(|e| e.to_string())
+}
+
+#[cfg(unix)]
+fn is_launch_at_startup_enabled_impl() -> Result<bool, String> {
+    Ok(false)
 }
 
 /// Check GitHub releases for a newer version.
@@ -582,13 +646,14 @@ async fn check_for_updates() -> Result<UpdateInfo, String> {
 
     let release_notes = body["body"].as_str().unwrap_or("").to_string();
 
-    // Find .deb asset download URL
-    let deb_download_url = body["assets"]
+    // Find the right asset download URL for this platform
+    let asset_suffix = if cfg!(unix) { ".deb" } else { ".exe" };
+    let download_url = body["assets"]
         .as_array()
         .and_then(|assets| {
             assets.iter().find_map(|a| {
                 let name = a["name"].as_str().unwrap_or("");
-                if name.ends_with(".deb") {
+                if name.ends_with(asset_suffix) {
                     a["browser_download_url"].as_str().map(|s| s.to_string())
                 } else {
                     None
@@ -609,7 +674,7 @@ async fn check_for_updates() -> Result<UpdateInfo, String> {
         latest_version: latest.to_string(),
         release_url: html_url.to_string(),
         release_notes,
-        deb_download_url,
+        download_url,
     })
 }
 
@@ -627,7 +692,8 @@ async fn download_update(
     std::fs::create_dir_all(&download_dir)
         .map_err(|e| format!("Cannot create download dir: {}", e))?;
 
-    let filename = format!("linvclipboard_{}_amd64.deb", version);
+    let ext = if cfg!(unix) { "deb" } else { "exe" };
+    let filename = format!("linvclipboard_{}_x86_64.{}", version, ext);
     let dest = download_dir.join(&filename);
 
     let client = reqwest::Client::builder()
@@ -680,16 +746,17 @@ async fn download_update(
     Ok(dest.to_string_lossy().to_string())
 }
 
-/// Install a downloaded .deb package using pkexec (shows native auth dialog).
+/// Install a downloaded update.
 ///
-/// The install script runs dpkg as root.  Because the old package's prerm hook
-/// may `pkill -x linvclip-ui` (killing *this* process mid-install), the script
-/// must be completely self-contained: it redirects its own stdout/stderr to a
-/// log file (preventing SIGPIPE when the UI dies and the pipes break), launches
-/// a detached restart script *before* dpkg, and uses a sentinel file to
-/// synchronise the two.
+/// On Linux, uses pkexec + dpkg to install a .deb.
+/// On Windows, returns an info message (handled by the Tauri updater plugin).
 #[tauri::command]
 async fn install_update(path: String) -> Result<String, String> {
+    install_update_impl(&path).await
+}
+
+#[cfg(unix)]
+async fn install_update_impl(path: &str) -> Result<String, String> {
     let p = std::path::Path::new(&path);
     if !p.exists() {
         return Err("File not found".to_string());
@@ -879,6 +946,11 @@ exit 0
             Ok("installed".to_string())
         }
     }
+}
+
+#[cfg(windows)]
+async fn install_update_impl(_path: &str) -> Result<String, String> {
+    Err("Auto-update install not supported on Windows. Download the latest installer from GitHub releases.".to_string())
 }
 
 /// Decode the embedded KLIPY app key (XOR-descrambled at runtime).
@@ -1530,12 +1602,36 @@ pub fn run() {
             fetch_link_preview,
             extract_text_from_image,
             update_preview_text,
+            set_launch_at_startup,
+            is_launch_at_startup_enabled,
         ])
         .setup(|app| {
             let window = app.get_webview_window("main").unwrap();
 
             // Clean up expired GIF cache files on startup
             std::thread::spawn(cleanup_expired_gif_cache);
+
+            // On Windows, spawn clipd if not already running
+            #[cfg(windows)]
+            {
+                let clipd_path = get_clipd_path();
+                if clipd_path.exists() {
+                    let pipe_check = std::path::Path::new(r"\\.\pipe\LinVClipBoard");
+                    if !pipe_check.exists() {
+                        match std::process::Command::new(&clipd_path).spawn() {
+                            Ok(child) => {
+                                std::mem::forget(child);
+                                tracing::info!("Started clipd from GUI");
+                            }
+                            Err(e) => {
+                                tracing::warn!("Failed to start clipd: {e}");
+                            }
+                        }
+                    }
+                } else {
+                    tracing::warn!("clipd.exe not found at {:?}", clipd_path);
+                }
+            }
 
             // --- System Tray ---
             // NOTE: On Linux with AppIndicator, a menu is REQUIRED for the icon to appear.

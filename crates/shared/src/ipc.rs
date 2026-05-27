@@ -59,14 +59,24 @@ pub async fn send_request(
     recv_message(&mut stream).await
 }
 
-// Windows stub — real IPC uses Named Pipes via the `platform` crate.
+/// Windows IPC using Named Pipes via the `platform` crate.
 #[cfg(windows)]
 pub async fn send_request(
     _socket_path: &Path,
-    _request: &IpcRequest,
+    request: &IpcRequest,
 ) -> std::io::Result<IpcResponse> {
-    Err(std::io::Error::new(
-        std::io::ErrorKind::Unsupported,
-        "Windows IPC not yet available. Use the platform crate when ported.",
-    ))
+    use platform::IpcTransport;
+    let transport = platform::WindowsIpcTransport::new_from_str("");
+    let mut stream = transport
+        .connect()
+        .await
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::ConnectionRefused, e.to_string()))?;
+
+    platform::ipc::send_message(&mut *stream, request)
+        .await
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+
+    platform::ipc::recv_message(&mut *stream)
+        .await
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))
 }

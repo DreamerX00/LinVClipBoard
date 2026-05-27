@@ -117,16 +117,6 @@ async fn main() {
 
     let socket_path = AppConfig::socket_path();
 
-    if !socket_path.exists() {
-        eprintln!("{}", "Error: clipd daemon is not running.".red().bold());
-        eprintln!("Start it with: {}", "clipd".cyan());
-        eprintln!(
-            "Or enable the service: {}",
-            "systemctl --user enable --now clipd".cyan()
-        );
-        std::process::exit(1);
-    }
-
     let request = match &cli.command {
         Commands::List { limit, offset } => IpcRequest::List {
             offset: *offset,
@@ -161,8 +151,7 @@ async fn main() {
     match send_request(&socket_path, &request).await {
         Ok(response) => print_response(&cli.command, response),
         Err(e) => {
-            eprintln!("{} {}", "Error:".red().bold(), e);
-            std::process::exit(1);
+            daemon_not_running_msg(e);
         }
     }
 }
@@ -305,6 +294,25 @@ fn format_duration(secs: u64) -> String {
     } else {
         format!("{}h {}m", secs / 3600, (secs % 3600) / 60)
     }
+}
+
+fn daemon_not_running_msg(e: std::io::Error) -> ! {
+    #[cfg(unix)]
+    {
+        eprintln!("{} {}", "Error:".red().bold(), e);
+        eprintln!("Start it with: {}", "clipd".cyan());
+        eprintln!(
+            "Or enable the service: {}",
+            "systemctl --user enable --now clipd".cyan()
+        );
+    }
+    #[cfg(windows)]
+    {
+        eprintln!("{}", "Error: clipd daemon is not running.".red().bold());
+        eprintln!("Start it with: {}", "clipd".cyan());
+        eprintln!("Or run: clipd.exe from the Start Menu");
+    }
+    std::process::exit(1);
 }
 
 fn format_bytes(bytes: u64) -> String {

@@ -52,6 +52,14 @@ build-win-ui: build-win-cross
 	cp target/x86_64-pc-windows-msvc/release/clipctl.exe crates/linvclip-ui/src-tauri/resources/
 	cd crates/linvclip-ui && npx tauri build --target x86_64-pc-windows-msvc
 
+.PHONY: build-windows-installer
+build-windows-installer: ## Build Windows NSIS installer (cross-compile)
+	cargo xwin build --release --target x86_64-pc-windows-msvc -p clipd -p clipctl
+	cp target/x86_64-pc-windows-msvc/release/clipd.exe crates/linvclip-ui/src-tauri/resources/
+	cp target/x86_64-pc-windows-msvc/release/clipctl.exe crates/linvclip-ui/src-tauri/resources/
+	cd crates/linvclip-ui && npm install && npx tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc --bundles nsis
+	@echo "Windows NSIS installer built: crates/linvclip-ui/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/"
+
 install: build
 	install -Dm755 target/release/clipd   $(DESTDIR)$(HOME)/.local/bin/clipd
 	install -Dm755 target/release/clipctl $(DESTDIR)$(HOME)/.local/bin/clipctl

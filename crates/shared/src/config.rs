@@ -167,17 +167,36 @@ impl Default for AppConfig {
 impl AppConfig {
     /// Path to the config file.
     pub fn config_path() -> PathBuf {
-        dirs::config_dir()
-            .unwrap_or_else(|| PathBuf::from("~/.config"))
-            .join("linvclip")
-            .join("config.toml")
+        #[cfg(unix)]
+        {
+            dirs::config_dir()
+                .unwrap_or_else(|| PathBuf::from("~/.config"))
+                .join("linvclip")
+                .join("config.toml")
+        }
+        #[cfg(windows)]
+        {
+            dirs::config_dir()
+                .unwrap_or_else(|| PathBuf::from(r"C:\Users\Default\AppData\Roaming"))
+                .join("LinVClipBoard")
+                .join("config.toml")
+        }
     }
 
     /// Path to the data directory.
     pub fn data_dir() -> PathBuf {
-        dirs::data_local_dir()
-            .unwrap_or_else(|| PathBuf::from("~/.local/share"))
-            .join("linvclip")
+        #[cfg(unix)]
+        {
+            dirs::data_local_dir()
+                .unwrap_or_else(|| PathBuf::from("~/.local/share"))
+                .join("linvclip")
+        }
+        #[cfg(windows)]
+        {
+            dirs::data_local_dir()
+                .unwrap_or_else(|| PathBuf::from(r"C:\Users\Default\AppData\Local"))
+                .join("LinVClipBoard")
+        }
     }
 
     /// Path to the blob storage directory.

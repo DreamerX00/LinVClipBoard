@@ -18,8 +18,9 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "io-util", "sync", "time", "process"] }
 shared = { path = "../../shared" }
+platform = { path = "../../platform" }
 base64 = "0.22"
-arboard = { version = "3", features = ["wayland-data-control"] }
+arboard = "3"
 reqwest = { version = "0.12", features = ["json", "stream"] }
 dirs = "5"
 tokio-stream = "0.1"
@@ -30,3 +31,6 @@ scraper = "0.22"
 html2text = "0.14"
 yaml_serde = "0.10"
 toml = "1.1"
+
+[target.'cfg(unix)'.dependencies]
+arboard = { version = "3", features = ["wayland-data-control"] }

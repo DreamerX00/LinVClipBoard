@@ -3,8 +3,12 @@ mod config_watcher;
 mod dbus_service;
 #[cfg(unix)]
 mod monitor;
+#[cfg(windows)]
+mod monitor_windows;
 #[cfg(unix)]
 mod server;
+#[cfg(windows)]
+mod server_windows;
 
 use shared::config::AppConfig;
 use shared::db::Database;
@@ -46,7 +50,7 @@ async fn main() -> anyhow::Result<()> {
     run_unix(&db, &config, start_time, &cancel).await?;
 
     #[cfg(windows)]
-    tracing::info!("Windows clipd stub — real implementation in Phase 2");
+    run_windows(&db, &config, start_time, &cancel).await?;
 
     let dbus_db = Arc::clone(&db);
     let _dbus_handle = tokio::spawn(async move {
@@ -59,10 +63,7 @@ async fn main() -> anyhow::Result<()> {
     wait_for_shutdown().await;
 
     #[cfg(windows)]
-    {
-        tokio::signal::ctrl_c().await?;
-        tracing::info!("Ctrl+C received, shutting down…");
-    }
+    wait_for_shutdown_windows().await?;
 
     cancel.cancel();
 
@@ -103,6 +104,14 @@ async fn wait_for_shutdown() {
             tracing::info!("SIGTERM received, shutting down…");
         }
     }
+}
+
+/// Wait for Ctrl+C on Windows.
+#[cfg(windows)]
+async fn wait_for_shutdown_windows() -> anyhow::Result<()> {
+    tokio::signal::ctrl_c().await?;
+    tracing::info!("Ctrl+C received, shutting down…");
+    Ok(())
 }
 
 #[cfg(unix)]
@@ -148,6 +157,46 @@ async fn run_unix(
         "✨ Daemon ready. Listening on {:?}",
         AppConfig::socket_path()
     );
+
+    Ok(())
+}
+
+/// Run the Windows daemon (monitor + server stub).
+#[cfg(windows)]
+async fn run_windows(
+    db: &Arc<Database>,
+    config: &Arc<AppConfig>,
+    start_time: std::time::Instant,
+    cancel: &CancellationToken,
+) -> anyhow::Result<()> {
+    let monitor_db = Arc::clone(db);
+    let monitor_config = Arc::clone(config);
+    let monitor_cancel = cancel.clone();
+    let _monitor_handle = tokio::spawn(async move {
+        if let Err(e) = monitor_windows::run(monitor_db, monitor_config, monitor_cancel).await {
+            tracing::error!("Windows monitor error: {}", e);
+        }
+    });
+
+    let server_db = Arc::clone(db);
+    let server_config = Arc::clone(config);
+    let pipe_path = AppConfig::socket_path();
+    let server_cancel = cancel.clone();
+    let _server_handle = tokio::spawn(async move {
+        if let Err(e) = server_windows::run(
+            server_db,
+            server_config,
+            &pipe_path,
+            start_time,
+            server_cancel,
+        )
+        .await
+        {
+            tracing::error!("Windows server error: {}", e);
+        }
+    });
+
+    tracing::info!("✨ Daemon ready. Pipe at {:?}", AppConfig::socket_path());
 
     Ok(())
 }
