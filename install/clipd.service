@@ -2,9 +2,20 @@
 Description=LinVClipBoard Clipboard Daemon
 Documentation=https://github.com/DreamerX00/LinVClipBoard
 After=graphical-session.target
+PartOf=graphical-session.target
+# Skip activation entirely on headless sessions — no clipboard to read.
+ConditionEnvironment=|DISPLAY
+ConditionEnvironment=|WAYLAND_DISPLAY
 
 [Service]
 Type=simple
+# graphical-session.target can become active a moment before the desktop
+# exports DISPLAY / WAYLAND_DISPLAY into the user manager environment. Wait
+# up to 30s for either to appear so the clipboard backend can attach on the
+# first try. We always exit 0 — the monitor itself also retries with backoff
+# (see crates/clipd/src/monitor.rs), so this is just an optimization to skip
+# the first few noisy reconnect attempts.
+ExecStartPre=/bin/sh -c 'for i in $(seq 1 30); do if [ -n "$WAYLAND_DISPLAY" ] || [ -n "$DISPLAY" ]; then exit 0; fi; sleep 1; done; exit 0'
 ExecStart=/usr/bin/clipd
 Restart=always
 RestartSec=3

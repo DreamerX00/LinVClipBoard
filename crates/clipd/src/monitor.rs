@@ -133,7 +133,38 @@ pub async fn run(
     const RECONNECT_THRESHOLD: u32 = 3;
 
     // Create clipboard instance ONCE — avoids Wayland fallback warning spam.
-    let mut clipboard = Clipboard::new()?;
+    //
+    // On a fresh boot, clipd may start before the desktop session has exported
+    // DISPLAY / WAYLAND_DISPLAY, in which case `Clipboard::new()` fails. We must
+    // NOT propagate that error — doing so would kill the monitor task while the
+    // rest of the daemon stays alive, leaving clipd in a half-dead state where
+    // the UI works but nothing is ever captured (and systemd's Restart=always
+    // never fires). Instead, retry with exponential backoff until it succeeds.
+    let mut clipboard = loop {
+        if cancel.is_cancelled() {
+            tracing::info!("Monitor cancelled before clipboard attached");
+            return Ok(());
+        }
+        match Clipboard::new() {
+            Ok(c) => break c,
+            Err(e) => {
+                tracing::warn!(
+                    "Clipboard not ready yet ({}); retrying in {}s",
+                    e,
+                    backoff_secs
+                );
+                tokio::select! {
+                    _ = tokio::time::sleep(Duration::from_secs(backoff_secs)) => {}
+                    _ = cancel.cancelled() => {
+                        tracing::info!("Monitor cancelled while waiting for clipboard");
+                        return Ok(());
+                    }
+                }
+                backoff_secs = (backoff_secs * 2).min(MAX_BACKOFF_SECS);
+            }
+        }
+    };
+    backoff_secs = 1;
     tracing::info!(
         "📋 Clipboard monitor started (polling every {}ms)",
         config.daemon.poll_interval_ms
