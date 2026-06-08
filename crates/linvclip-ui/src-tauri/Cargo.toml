@@ -1,6 +1,6 @@
 [package]
 name = "linvclip-ui"
-version = "3.0.1"
+version = "3.0.2"
 edition = "2021"
 
 [lib]
@@ -14,6 +14,7 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = ["tray-icon", "image-png", "custom-protocol"] }
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-shell = "2"
+tauri-plugin-updater = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "io-util", "sync", "time", "process"] }

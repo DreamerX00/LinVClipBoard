@@ -1,6 +1,6 @@
 {
     "productName": "LinVClipBoard",
-    "version": "3.0.1",
+    "version": "3.0.2",
     "identifier": "com.linvclipboard.app",
     "build": {
         "frontendDist": "../dist",
@@ -70,5 +70,15 @@
             }
         }
     },
-    "plugins": {}
+    "plugins": {
+        "updater": {
+            "pubkey": "PLEASE_REPLACE_WITH_GENERATED_PUBKEY",
+            "endpoints": [
+                "https://github.com/akash-singh/LinVClipBoard/releases/latest/download/update-windows-x86_64.json"
+            ],
+            "windows": {
+                "installMode": "passive"
+            }
+        }
+    }
 }

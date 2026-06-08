@@ -289,14 +289,19 @@ enable_clipd() {
         su "$USER" -c "XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR} DBUS_SESSION_BUS_ADDRESS=${DBUS_SESSION_BUS_ADDRESS} $*" 2>/dev/null || true
     }
 
-    # Remove any lingering user-level service files that shadow /usr/lib/systemd/user/
     HOME_DIR=$(getent passwd "$USER" | cut -d: -f6)
+
+    # Remove any lingering user-level service files that shadow /usr/lib/systemd/user/
     for svc in clipd.service linvclip-update-check.service linvclip-update-check.timer; do
         if [ -f "${HOME_DIR}/.config/systemd/user/${svc}" ]; then
             run_as systemctl --user disable "${svc}" 2>/dev/null || true
             rm -f "${HOME_DIR}/.config/systemd/user/${svc}"
         fi
     done
+
+    # Remove duplicate user-level autostart entry to prevent double tray icons
+    # (system-level /etc/xdg/autostart/ from the deb is the canonical one)
+    rm -f "${HOME_DIR}/.config/autostart/linvclipboard.desktop" 2>/dev/null || true
 
     run_as systemctl --user daemon-reload 2>/dev/null || true
     run_as systemctl --user enable clipd.service 2>/dev/null || true
