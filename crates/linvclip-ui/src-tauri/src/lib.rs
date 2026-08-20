@@ -6,6 +6,7 @@ use shared::models::{ClipboardItem, IpcRequest, IpcResponse, Snippet};
 use tauri::Emitter;
 use tauri::Manager;
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
+use tauri_plugin_updater::UpdaterExt;
 
 // Obfuscated KLIPY API key generated at build time (XOR-scrambled).
 include!(concat!(env!("OUT_DIR"), "/klipy_key.rs"));
@@ -950,7 +951,87 @@ exit 0
 
 #[cfg(windows)]
 async fn install_update_impl(_path: &str) -> Result<String, String> {
-    Err("Auto-update install not supported on Windows. Download the latest installer from GitHub releases.".to_string())
+    Err("Not used on Windows — the app updates itself via the built-in updater. If this persists, download the latest installer from GitHub releases.".to_string())
+}
+
+/// Check for updates using the Tauri updater plugin (Windows only).
+#[tauri::command]
+async fn check_for_updates_via_plugin(app: tauri::AppHandle) -> Result<UpdateInfo, String> {
+    let checked = match app.updater() {
+        Ok(updater) => updater.check().await.map_err(|e| e.to_string()),
+        Err(e) => Err(e.to_string()),
+    };
+    let update = match checked {
+        Ok(u) => u,
+        // ponytail: no update manifest published yet (or plugin misconfigured) —
+        // fall back to the GitHub API check so Windows users still learn of updates
+        Err(_) => return check_for_updates().await,
+    };
+
+    let current = env!("CARGO_PKG_VERSION").to_string();
+    let mut info = UpdateInfo {
+        has_update: false,
+        current_version: current.clone(),
+        latest_version: current,
+        release_url: String::new(),
+        release_notes: String::new(),
+        download_url: String::new(),
+    };
+    if let Some(up) = update {
+        info.has_update = true;
+        info.latest_version = up.version;
+        info.release_url = "https://github.com/DreamerX00/LinVClipBoard/releases/latest".to_string();
+        info.release_notes = up.body.unwrap_or_default();
+    }
+    Ok(info)
+}
+
+/// Install update using the Tauri updater plugin (Windows only).
+#[tauri::command]
+async fn install_update_via_plugin(app: tauri::AppHandle) -> Result<String, String> {
+    if !cfg!(windows) {
+        // Guard: on a Linux .deb install the plugin would fall through to its
+        // AppImage path and try to overwrite the running executable.
+        return Err("Updater plugin install is Windows-only".to_string());
+    }
+
+    let updater = app.updater().map_err(|e| e.to_string())?;
+    let update = updater
+        .check()
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or("No update available".to_string())?;
+
+    // Reuse the existing download-progress event so UpdateModal shows a live bar.
+    let progress_app = app.clone();
+    let mut downloaded: u64 = 0;
+    update
+        .download_and_install(
+            move |chunk, total| {
+                downloaded += chunk as u64;
+                let total = total.unwrap_or(0);
+                let percent = if total > 0 {
+                    downloaded as f64 / total as f64 * 100.0
+                } else {
+                    0.0
+                };
+                let _ = progress_app.emit(
+                    "download-progress",
+                    DownloadProgress {
+                        downloaded,
+                        total,
+                        percent,
+                    },
+                );
+            },
+            || {},
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // Note: on success the plugin exits the app to run the installer, so this
+    // return is normally only reached on the error path above.
+    Ok("installed".to_string())
 }
 
 /// Decode the embedded KLIPY app key (XOR-descrambled at runtime).
@@ -1558,6 +1639,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             get_items,
             search_items,
@@ -1590,6 +1672,8 @@ pub fn run() {
             clear_gif_cache,
             get_app_version,
             check_for_updates,
+            check_for_updates_via_plugin,
+            install_update_via_plugin,
             download_update,
             install_update,
             generate_qr_code,

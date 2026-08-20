@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
+  <metadata>
+    <id>linvclipboard</id>
+    <version>3.0.0</version>
+    <title>LinVClipBoard</title>
+    <authors>LinVClipBoard Contributors</authors>
+    <owners>akash-singh</owners>
+    <licenseUrl>https://github.com/akash-singh/LinVClipBoard/blob/main/LICENSE</licenseUrl>
+    <projectUrl>https://github.com/akash-singh/LinVClipBoard</projectUrl>
+    <iconUrl>https://raw.githubusercontent.com/akash-singh/LinVClipBoard/main/crates/linvclip-ui/src-tauri/icons/icon.png</iconUrl>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <description>LinVClipBoard is a feature-rich clipboard manager with clipboard history, full-text search, emoji picker, image support, snippets, and more.</description>
+    <summary>The clipboard manager Linux deserves — now on Windows.</summary>
+    <releaseNotes>https://github.com/akash-singh/LinVClipBoard/releases/tag/v3.0.0</releaseNotes>
+    <copyright>Copyright (c) 2025-2026 LinVClipBoard Contributors. MIT License.</copyright>
+    <tags>clipboard clipboard-manager productivity utility</tags>
+  </metadata>
+</package>

@@ -3,8 +3,10 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
@@ -33,13 +35,20 @@ jobs:
         run: cargo clippy --workspace -- -D warnings
 
   test:
-    name: Test
-    runs-on: ubuntu-latest
+    name: Test (${{ matrix.os }})
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Install system dependencies
+      - name: Enable long paths (Windows)
+        if: matrix.os == 'windows-latest'
+        run: git config --system core.longpaths true
+      - name: Install Linux system dependencies
+        if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential pkg-config libsqlite3-dev \
@@ -91,9 +100,100 @@ jobs:
         working-directory: crates/linvclip-ui
         run: npm ci && npx tauri build
 
+  build-windows:
+    name: Build Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: crates/linvclip-ui/package-lock.json
+      - uses: Swatinem/rust-cache@v2
+      - name: Enable long paths
+        run: git config --system core.longpaths true
+      - name: Install npm dependencies
+        working-directory: crates/linvclip-ui
+        run: npm ci
+      - name: Build Rust binaries
+        run: cargo build --release -p clipd -p clipctl
+      - name: Copy binaries to Tauri resources
+        shell: pwsh
+        run: |
+          Copy-Item "target/release/clipd.exe" "crates/linvclip-ui/src-tauri/resources/" -Force
+          Copy-Item "target/release/clipctl.exe" "crates/linvclip-ui/src-tauri/resources/" -Force
+      - name: Build Tauri Windows app
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
+        working-directory: crates/linvclip-ui
+        run: |
+          if ($env:TAURI_SIGNING_PRIVATE_KEY) {
+            npx tauri build --bundles nsis
+          } else {
+            # ponytail: no signing key -> disable updater artifacts so unsigned builds still ship
+            npx tauri build --bundles nsis --config '{"bundle":{"createUpdaterArtifacts":false}}'
+          }
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: |
+            crates/linvclip-ui/src-tauri/target/release/bundle/nsis/*.exe
+            crates/linvclip-ui/src-tauri/target/release/bundle/nsis/*.sig
+            crates/linvclip-ui/src-tauri/target/release/bundle/nsis/*.nsis.zip
+      - name: Upload Windows binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-binaries
+          path: |
+            target/release/clipd.exe
+            target/release/clipctl.exe
+
+  build-windows-cross:
+    name: Build Windows (cross)
+    # ponytail: fallback build only — duplicates build-windows, so run on manual dispatch only
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cross-compilation tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nsis lld llvm mingw-w64
+          cargo install cargo-xwin
+      - name: Build Rust binaries (cross)
+        run: cargo xwin build --release --target x86_64-pc-windows-msvc -p clipd -p clipctl
+      - name: Build Tauri (cross)
+        run: |
+          mkdir -p crates/linvclip-ui/src-tauri/resources
+          cp target/x86_64-pc-windows-msvc/release/clipd.exe crates/linvclip-ui/src-tauri/resources/
+          cp target/x86_64-pc-windows-msvc/release/clipctl.exe crates/linvclip-ui/src-tauri/resources/
+          cd crates/linvclip-ui
+          npm ci
+          npx tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc --bundles nsis
+      - name: Upload cross-compiled installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer-cross
+          path: |
+            crates/linvclip-ui/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+
   release:
     name: Release
-    needs: [lint, test, build-daemon, build-ui]
+    needs: [lint, test, build-daemon, build-ui, build-windows]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
@@ -117,10 +217,46 @@ jobs:
         run: make build-all
       - name: Package .deb
         run: make deb
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-installer
+          path: windows-installer
+      - name: Generate update manifest
+        run: |
+          # ponytail: derive name/version from the actual artifact, not the tag — a tag
+          # pushed without a version bump would otherwise publish a 404 download URL
+          EXE_FILE=$(ls windows-installer/*-setup.exe 2>/dev/null | head -1 || true)
+          SIG_FILE=$(ls windows-installer/*.sig 2>/dev/null | head -1 || true)
+          if [ -z "$EXE_FILE" ] || [ -z "$SIG_FILE" ]; then
+            echo "No signed Windows installer found — skipping update manifest"
+            exit 0
+          fi
+          EXE_NAME=$(basename "$EXE_FILE")
+          VERSION=$(echo "$EXE_NAME" | sed -E 's/^LinVClipBoard_(.+)_x64-setup\.exe$/\1/')
+          TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          SIGNATURE=$(cat "$SIG_FILE")
+          cat > update-windows-x86_64.json <<EOF
+          {
+            "version": "${VERSION}",
+            "notes": "Release v${VERSION} of LinVClipBoard",
+            "pub_date": "${TIMESTAMP}",
+            "platforms": {
+              "windows-x86_64": {
+                "signature": "${SIGNATURE}",
+                "url": "https://github.com/DreamerX00/LinVClipBoard/releases/download/${GITHUB_REF_NAME}/${EXE_NAME}"
+              }
+            }
+          }
+          EOF
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: target/debian/*.deb
+          files: |
+            target/debian/*.deb
+            windows-installer/*.exe
+            windows-installer/*.sig
+            update-windows-x86_64.json
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

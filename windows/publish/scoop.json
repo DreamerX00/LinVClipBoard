@@ -1,0 +1,24 @@
+{
+    "version": "3.0.0",
+    "description": "The clipboard manager Linux deserves — now on Windows",
+    "homepage": "https://github.com/DreamerX00/LinVClipBoard",
+    "license": "MIT",
+    "architecture": {
+        "64bit": {
+            "url": "https://github.com/DreamerX00/LinVClipBoard/releases/download/v3.0.0/LinVClipBoard_3.0.0_x64-setup.exe#/dl.7z",
+            "hash": "SHA256_HASH"
+        }
+    },
+    "shortcuts": [
+        ["linvclip-ui.exe", "LinVClipBoard"]
+    ],
+    "bin": ["clipctl.exe"],
+    "checkver": "github",
+    "autoupdate": {
+        "architecture": {
+            "64bit": {
+                "url": "https://github.com/DreamerX00/LinVClipBoard/releases/download/v$version/LinVClipBoard_$version_x64-setup.exe#/dl.7z"
+            }
+        }
+    }
+}

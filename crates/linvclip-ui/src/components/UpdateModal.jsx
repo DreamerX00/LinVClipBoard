@@ -32,12 +32,30 @@ function UpdateModal({ updateInfo, onClose }) {
         return () => { if (unlisten) unlisten(); };
     }, []);
 
+    const isWindows = navigator.userAgent.includes("Windows");
+
     const handleDownload = useCallback(async () => {
+        if (isWindows) {
+            // Backend emits download-progress during download, then the app
+            // exits to run the installer — "installed" is only reached on
+            // paths where the plugin returns instead of relaunching.
+            setStage("downloading");
+            setProgress({ downloaded: 0, total: 0, percent: 0 });
+            setErrorMsg("");
+            try {
+                await invoke("install_update_via_plugin");
+                setStage("installed");
+            } catch (err) {
+                setErrorMsg(String(err));
+                setStage("error");
+            }
+            return;
+        }
         setStage("downloading");
         setProgress({ downloaded: 0, total: 0, percent: 0 });
         try {
             const path = await invoke("download_update", {
-                url: updateInfo.deb_download_url,
+                url: updateInfo.download_url,
                 version: updateInfo.latest_version,
             });
             setSavedPath(path);
@@ -46,7 +64,7 @@ function UpdateModal({ updateInfo, onClose }) {
             setErrorMsg(String(err));
             setStage("error");
         }
-    }, [updateInfo]);
+    }, [updateInfo, isWindows]);
 
     const handleInstall = useCallback(async () => {
         setStage("installing");
@@ -57,7 +75,6 @@ function UpdateModal({ updateInfo, onClose }) {
         } catch (err) {
             const msg = String(err);
             if (msg.includes("auth_cancelled")) {
-                // User dismissed the password dialog — go back to ready state
                 setStage("ready_to_install");
             } else {
                 setErrorMsg(msg);
@@ -247,7 +264,7 @@ function UpdateModal({ updateInfo, onClose }) {
                 <div className="update-modal-actions">
                     {stage === "idle" && (
                         <>
-                            <button className="update-btn-primary" onClick={handleDownload} disabled={!updateInfo.deb_download_url}>
+                            <button className="update-btn-primary" onClick={handleDownload} disabled={!isWindows && !updateInfo.download_url}>
                                 ⬇ {t("update.download_now")}
                             </button>
                             <button className="update-btn-secondary" onClick={handleVisitGithub}>

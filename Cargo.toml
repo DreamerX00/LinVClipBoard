@@ -9,12 +9,12 @@ members = [
 ]
 
 [workspace.package]
-version = "3.0.2"
+version = "3.0.3"
 edition = "2021"
 license = "MIT"
 authors = ["LinVClipBoard Contributors"]
 description = "A superior Win+V equivalent clipboard platform for Linux and Windows"
-repository = "https://github.com/anomalyco/LinVClipBoard"
+repository = "https://github.com/DreamerX00/LinVClipBoard"
 
 [workspace.metadata.windows]
 # Minimum Windows version: Windows 10 1809

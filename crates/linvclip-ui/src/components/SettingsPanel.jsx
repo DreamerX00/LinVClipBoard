@@ -242,7 +242,10 @@ function SettingsPanel({ onClose, zoom, onZoomChange }) {
         setUpdateStatus("checking");
         setShowUpdatePopup(null);
         try {
-            const info = await invoke("check_for_updates");
+            const isWindows = navigator.userAgent.includes("Windows");
+            const info = await invoke(
+                isWindows ? "check_for_updates_via_plugin" : "check_for_updates"
+            );
             setUpdateStatus(info);
             if (info.has_update) {
                 setShowUpdateModal(true);

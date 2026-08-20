@@ -1,0 +1,20 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
+PackageIdentifier: LinVClipBoard.LinVClipBoard
+PackageVersion: 3.0.0
+PackageLocale: en-US
+Publisher: LinVClipBoard
+PublisherUrl: https://github.com/akash-singh/LinVClipBoard
+PackageName: LinVClipBoard
+PackageUrl: https://github.com/akash-singh/LinVClipBoard
+License: MIT
+LicenseUrl: https://github.com/akash-singh/LinVClipBoard/blob/main/LICENSE
+ShortDescription: The clipboard manager Linux deserves — now on Windows.
+Description: >
+  LinVClipBoard is a feature-rich clipboard manager with clipboard history,
+  full-text search, emoji picker, image support, snippets, and more.
+Tags:
+  - clipboard
+  - clipboard-manager
+  - productivity
+  - utility
+ReleaseNotesUrl: https://github.com/akash-singh/LinVClipBoard/releases/tag/v3.0.0
