@@ -162,6 +162,7 @@ async fn type_text(text: String, app: tauri::AppHandle) -> Result<String, String
 
     #[cfg(windows)]
     {
+        use platform::InputSimulator;
         let sim = platform::WindowsInputSimulator::new();
         let _ = sim.type_text(&text);
         return Ok("typed".to_string());
@@ -188,6 +189,7 @@ async fn type_text(text: String, app: tauri::AppHandle) -> Result<String, String
 }
 
 /// Try to type text directly into the currently focused window.
+#[cfg(unix)]
 fn try_type_direct(text: &str) -> bool {
     // wtype — works on wlroots-based Wayland compositors (Sway, Hyprland, etc.)
     if run_silent("wtype", &["--", text]) {
@@ -205,6 +207,7 @@ fn try_type_direct(text: &str) -> bool {
 }
 
 /// Try to simulate Ctrl+V in the currently focused window.
+#[cfg(unix)]
 fn try_paste_shortcut() -> bool {
     if run_silent("wtype", &["-M", "ctrl", "-P", "v", "-p", "v", "-m", "ctrl"]) {
         return true;
@@ -216,6 +219,7 @@ fn try_paste_shortcut() -> bool {
 }
 
 /// Run a command silently, returning true if it exits successfully.
+#[cfg(unix)]
 fn run_silent(program: &str, args: &[&str]) -> bool {
     std::process::Command::new(program)
         .args(args)
@@ -510,10 +514,9 @@ async fn extract_text_from_image(
         return Err("Image file not found".to_string());
     }
 
-    let language = lang.unwrap_or_else(|| "eng".to_string());
-
     #[cfg(unix)]
     {
+        let language = lang.unwrap_or_else(|| "eng".to_string());
         let output = tokio::process::Command::new("tesseract")
             .args([&image_path, "stdout", "-l", &language])
             .output()
@@ -541,6 +544,7 @@ async fn extract_text_from_image(
 
     #[cfg(windows)]
     {
+        let _ = lang;
         Err("OCR via Tesseract is not available on Windows. Use the Windows Snipping Tool or a third-party OCR application.".to_string())
     }
 }
@@ -582,6 +586,7 @@ async fn set_launch_at_startup(enabled: bool) -> Result<(), String> {
 
 #[cfg(windows)]
 fn set_launch_at_startup_impl(enabled: bool) -> Result<(), String> {
+    use platform::ServiceManager;
     let mgr = platform::WindowsServiceManager::new();
     let clipd_path = get_clipd_path().to_string_lossy().to_string();
     if enabled {
@@ -605,6 +610,7 @@ async fn is_launch_at_startup_enabled() -> Result<bool, String> {
 
 #[cfg(windows)]
 fn is_launch_at_startup_enabled_impl() -> Result<bool, String> {
+    use platform::ServiceManager;
     let mgr = platform::WindowsServiceManager::new();
     mgr.is_autostart_enabled().map_err(|e| e.to_string())
 }
@@ -980,7 +986,8 @@ async fn check_for_updates_via_plugin(app: tauri::AppHandle) -> Result<UpdateInf
     if let Some(up) = update {
         info.has_update = true;
         info.latest_version = up.version;
-        info.release_url = "https://github.com/DreamerX00/LinVClipBoard/releases/latest".to_string();
+        info.release_url =
+            "https://github.com/DreamerX00/LinVClipBoard/releases/latest".to_string();
         info.release_notes = up.body.unwrap_or_default();
     }
     Ok(info)
@@ -1705,15 +1712,15 @@ pub fn run() {
                         match std::process::Command::new(&clipd_path).spawn() {
                             Ok(child) => {
                                 std::mem::forget(child);
-                                tracing::info!("Started clipd from GUI");
+                                eprintln!("Started clipd from GUI");
                             }
                             Err(e) => {
-                                tracing::warn!("Failed to start clipd: {e}");
+                                eprintln!("Failed to start clipd: {e}");
                             }
                         }
                     }
                 } else {
-                    tracing::warn!("clipd.exe not found at {:?}", clipd_path);
+                    eprintln!("clipd.exe not found at {:?}", clipd_path);
                 }
             }
 

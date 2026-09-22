@@ -3,7 +3,7 @@ use crate::traits::ClipboardProvider;
 use clipboard_win::{formats, get_clipboard, set_clipboard, Clipboard};
 use std::sync::Mutex;
 
-const CLIPBOARD_RETRIES: u32 = 5;
+const CLIPBOARD_RETRIES: usize = 5;
 
 pub struct WindowsClipboardProvider {
     _inner: Mutex<()>,
@@ -62,11 +62,14 @@ impl ClipboardProvider for WindowsClipboardProvider {
             .map_err(|e| PlatformError::Clipboard(format!("open clipboard: {}", e)))?;
 
         let html_format = clipboard_win::raw::register_format("HTML Format")
-            .map_err(|e| PlatformError::Clipboard(format!("register HTML Format: {}", e)))?;
+            .ok_or_else(|| PlatformError::Clipboard("register HTML Format failed".to_string()))?
+            .get();
 
         if clipboard_win::is_format_avail(html_format) {
-            let raw: String = get_clipboard(formats::RawData(html_format))
+            let raw: Vec<u8> = get_clipboard(formats::RawData(html_format))
                 .map_err(|e| PlatformError::Clipboard(format!("get_html: {}", e)))?;
+            // CF_HTML is specified as UTF-8; tolerate malformed bytes rather than fail.
+            let raw = String::from_utf8_lossy(&raw);
             Ok(Some(extract_html_fragment(&raw)))
         } else {
             Ok(None)

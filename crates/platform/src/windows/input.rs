@@ -1,5 +1,5 @@
 use crate::error::PlatformError;
-use crate::traits::InputSimulator;
+use crate::traits::{ClipboardProvider, InputSimulator};
 use enigo::{
     Direction::{Click, Press, Release},
     Enigo, Key, Keyboard, Settings,
@@ -51,7 +51,7 @@ impl InputSimulator for WindowsInputSimulator {
             .map_err(|e| PlatformError::Input(e.to_string()))?;
         std::thread::sleep(std::time::Duration::from_millis(15));
         enigo
-            .key(Key::Layout('v'), Click)
+            .key(Key::Unicode('v'), Click)
             .map_err(|e| PlatformError::Input(e.to_string()))?;
         std::thread::sleep(std::time::Duration::from_millis(15));
         enigo

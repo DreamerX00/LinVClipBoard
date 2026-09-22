@@ -1,0 +1,25 @@
+{
+    "bundle": {
+        "targets": [
+            "nsis"
+        ],
+        "windows": {
+            "webviewInstallMode": {
+                "type": "downloadBootstrapper"
+            },
+            "nsis": {
+                "installMode": "currentUser",
+                "languages": [
+                    "en-US"
+                ],
+                "displayLanguageSelector": false,
+                "installerHooks": "../../../windows/hooks/installer.nsh"
+            }
+        },
+        "resources": {
+            "resources/clipd.exe": ".",
+            "resources/clipctl.exe": "."
+        },
+        "createUpdaterArtifacts": true
+    }
+}
