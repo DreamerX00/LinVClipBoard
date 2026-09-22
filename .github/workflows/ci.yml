@@ -8,8 +8,22 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Least privilege by default; the release job raises this for itself.
+permissions:
+  contents: read
+
+# A new push to the same PR/branch supersedes the in-flight run. Tag builds are
+# never cancelled so a release is not interrupted by an unrelated push.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
 env:
   CARGO_TERM_COLOR: always
+  # Keep in sync with rust-toolchain.toml — the lint job fails if they drift.
+  # Pinning means CI only breaks on code changes, not on a new stable release
+  # shipping new clippy lints (we run clippy with `-D warnings`).
+  RUST_TOOLCHAIN: 1.98.1
 
 jobs:
   lint:
@@ -17,8 +31,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-node@v6
@@ -26,6 +41,26 @@ jobs:
           node-version: 20
           cache: npm
           cache-dependency-path: crates/linvclip-ui/package-lock.json
+      - name: Check toolchain pin is consistent
+        run: |
+          PIN=$(sed -n 's/^channel *= *"\(.*\)"/\1/p' rust-toolchain.toml)
+          if [ "$PIN" != "$RUST_TOOLCHAIN" ]; then
+            echo "::error::rust-toolchain.toml pins $PIN but RUST_TOOLCHAIN in ci.yml is $RUST_TOOLCHAIN — update both together"
+            exit 1
+          fi
+          echo "Toolchain pin OK: $PIN"
+      - name: Check version fields agree
+        # The release manifest, the .deb name and the NSIS installer name are all
+        # derived from these; a mismatch ships a release with the wrong version.
+        run: |
+          CARGO_V=$(sed -n 's/^version *= *"\(.*\)"/\1/p' Cargo.toml | head -1)
+          NPM_V=$(node -p "require('./crates/linvclip-ui/package.json').version")
+          TAURI_V=$(node -p "require('./crates/linvclip-ui/src-tauri/tauri.conf.json').version")
+          echo "Cargo.toml=$CARGO_V package.json=$NPM_V tauri.conf.json=$TAURI_V"
+          if [ "$CARGO_V" != "$NPM_V" ] || [ "$CARGO_V" != "$TAURI_V" ]; then
+            echo "::error::Version fields disagree — bump Cargo.toml, package.json and tauri.conf.json together"
+            exit 1
+          fi
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -37,12 +72,15 @@ jobs:
       - name: Build frontend
         # tauri::generate_context!() embeds `frontendDist` at compile time and
         # fails if the directory is missing, so clippy needs the built assets.
+        # `npm ci` (not `npm install`) fails loudly if package-lock.json is stale.
         working-directory: crates/linvclip-ui
         run: npm ci && npm run build
       - name: Check formatting
         run: cargo fmt --all -- --check
       - name: Clippy
-        run: cargo clippy --workspace -- -D warnings
+        # --locked: fail if Cargo.lock is out of sync with Cargo.toml instead of
+        # silently resolving different dependency versions than developers use.
+        run: cargo clippy --workspace --locked -- -D warnings
 
   test:
     name: Test (${{ matrix.os }})
@@ -53,7 +91,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-node@v6
         with:
@@ -79,40 +119,45 @@ jobs:
         run: npm ci && npm run build
       - name: Build daemon binaries for Tauri resources (Windows)
         # tauri-build validates bundle.resources at compile time, and the Windows
-        # config bundles clipd.exe/clipctl.exe — so they must exist before the
-        # linvclip-ui crate (and therefore cargo test --workspace) can compile.
+        # config (tauri.windows.conf.json) bundles clipd.exe/clipctl.exe — so they
+        # must exist before the linvclip-ui crate (and therefore
+        # cargo test --workspace) can compile.
         if: matrix.os == 'windows-latest'
         shell: pwsh
         run: |
-          cargo build -p clipd -p clipctl
+          cargo build --locked -p clipd -p clipctl
           Copy-Item "target/debug/clipd.exe" "crates/linvclip-ui/src-tauri/resources/" -Force
           Copy-Item "target/debug/clipctl.exe" "crates/linvclip-ui/src-tauri/resources/" -Force
       - name: Run tests
-        run: cargo test --workspace
+        run: cargo test --workspace --locked
 
   build-daemon:
     name: Build Daemon (${{ matrix.target }})
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         target: [x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu]
     steps:
       - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
       - name: Install cross
         run: cargo install cross --git https://github.com/cross-rs/cross
       - name: Build
-        run: cross build --release --target ${{ matrix.target }} -p clipd -p clipctl
+        run: cross build --release --locked --target ${{ matrix.target }} -p clipd -p clipctl
 
   build-ui:
     name: Build UI
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-node@v6
         with:
@@ -128,16 +173,21 @@ jobs:
             libgtk-3-dev libglib2.0-dev libgdk-pixbuf-2.0-dev libatk1.0-dev \
             libpango1.0-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
       - name: Build UI
+        # On Linux tauri.linux.conf.json sets bundle.active=false: this compiles
+        # the GUI binary only. Linux packaging is done by packaging/build-deb.sh.
         working-directory: crates/linvclip-ui
         run: npm ci && npx tauri build
+      - name: Check GUI binary was produced
+        run: test -x target/release/linvclip-ui
 
   build-windows:
     name: Build Windows
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
           targets: x86_64-pc-windows-msvc
       - uses: actions/setup-node@v6
         with:
@@ -151,7 +201,7 @@ jobs:
         working-directory: crates/linvclip-ui
         run: npm ci
       - name: Build Rust binaries
-        run: cargo build --release -p clipd -p clipctl
+        run: cargo build --release --locked -p clipd -p clipctl
       - name: Copy binaries to Tauri resources
         shell: pwsh
         run: |
@@ -192,6 +242,7 @@ jobs:
           path: |
             target/release/clipd.exe
             target/release/clipctl.exe
+          if-no-files-found: error
 
   build-windows-cross:
     name: Build Windows (cross)
@@ -200,8 +251,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
           targets: x86_64-pc-windows-msvc
       - uses: actions/setup-node@v6
         with:
@@ -213,7 +265,7 @@ jobs:
           sudo apt-get install -y nsis lld llvm mingw-w64
           cargo install cargo-xwin
       - name: Build Rust binaries (cross)
-        run: cargo xwin build --release --target x86_64-pc-windows-msvc -p clipd -p clipctl
+        run: cargo xwin build --release --locked --target x86_64-pc-windows-msvc -p clipd -p clipctl
       - name: Build Tauri (cross)
         run: |
           mkdir -p crates/linvclip-ui/src-tauri/resources
@@ -239,11 +291,15 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-node@v6
         with:
           node-version: 20
+          cache: npm
+          cache-dependency-path: crates/linvclip-ui/package-lock.json
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -252,6 +308,15 @@ jobs:
             libwayland-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev \
             libgtk-3-dev libglib2.0-dev libgdk-pixbuf-2.0-dev libatk1.0-dev \
             libpango1.0-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
+      - name: Check tag matches the project version
+        # A tag pushed without a version bump would publish a release whose
+        # artifacts and update manifest carry a different version than the tag.
+        run: |
+          CARGO_V=$(sed -n 's/^version *= *"\(.*\)"/\1/p' Cargo.toml | head -1)
+          if [ "v$CARGO_V" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match Cargo.toml version $CARGO_V"
+            exit 1
+          fi
       - name: Build all
         run: make build-all
       - name: Package .deb
