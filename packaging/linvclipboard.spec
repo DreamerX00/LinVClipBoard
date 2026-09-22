@@ -1,7 +1,7 @@
 %global debug_package %{nil}
 
 Name:           linvclipboard
-Version:        1.3.0
+Version:        3.1.0
 Release:        1%{?dist}
 Summary:        Clipboard history manager for Linux (Win+V equivalent)
 License:        MIT
@@ -74,6 +74,9 @@ systemctl --user --no-ask-password disable clipd.service 2>/dev/null || true
 %{_datadir}/icons/hicolor/128x128/apps/linvclipboard.png
 
 %changelog
+* Mon Sep 22 2026 LinVClipBoard Contributors <noreply@linvclipboard.dev> - 3.1.0-1
+- Linux release artifacts: .deb (with Depends), .rpm, portable tarball, SHA256SUMS
+- Version sync: Cargo workspace, npm package, Tauri config, and all manifests
 * Sun Mar 02 2026 LinVClipBoard Contributors <noreply@linvclipboard.dev> - 1.1.0-1
 - Full audit pass: 45 fixes, improvements, and new features
 - Schema migration system, D-Bus interface, CI/CD pipeline

@@ -13,7 +13,7 @@
   <a href="https://github.com/DreamerX00/LinVClipBoard/releases/latest"><img src="https://img.shields.io/github/v/release/DreamerX00/LinVClipBoard?style=flat-square&color=6366f1&label=release" alt="Latest Release" /></a>
   <a href="https://github.com/DreamerX00/LinVClipBoard/blob/main/LICENSE"><img src="https://img.shields.io/github/license/DreamerX00/LinVClipBoard?style=flat-square&color=34d399" alt="MIT License" /></a>
   <a href="https://github.com/DreamerX00/LinVClipBoard/releases/latest"><img src="https://img.shields.io/github/downloads/DreamerX00/LinVClipBoard/total?style=flat-square&color=f59e0b&label=downloads" alt="Downloads" /></a>
-  <img src="https://img.shields.io/badge/rust-2024-orange?style=flat-square&logo=rust" alt="Rust" />
+  <img src="https://img.shields.io/badge/rust-2021-orange?style=flat-square&logo=rust" alt="Rust" />
   <img src="https://img.shields.io/badge/tauri-v2-24C8D8?style=flat-square&logo=tauri" alt="Tauri v2" />
 </p>
 
@@ -43,7 +43,7 @@ Built in **Rust + Tauri v2**. Runs as a systemd user service. No Electron. No bl
 |:--------|:------------|
 | 📋 **Clipboard History** | Every text & image you copy, searchable with SQLite FTS5 |
 | 🎞️ **GIF Search** | Browse trending GIFs, search the KLIPY library, copy URL with one click |
-| 😀 **Emoji Picker** | ~300 emojis across 9 categories with recent-used tracking |
+| 😀 **Emoji Picker** | ~1,800 emojis across 9 categories with recent-used tracking |
 | ∑ **Symbol Table** | Math, arrows, currency, Greek, superscripts, box drawing |
 | 🔍 **Full-text Search** | Instant FTS5 search across your entire history |
 | 📌 **Pin & Organize** | Pin important items so they never expire |
@@ -60,16 +60,45 @@ Built in **Rust + Tauri v2**. Runs as a systemd user service. No Electron. No bl
 
 ## 🚀 Quick Install
 
-### One command (Debian/Ubuntu)
+> Current release: **v3.1.0**. Grab the files from
+> [Releases](https://github.com/DreamerX00/LinVClipBoard/releases/latest).
+
+### Debian/Ubuntu (.deb)
 
 ```bash
-# Download the latest .deb from Releases and install:
-sudo dpkg -i linvclipboard_1.5.0-1_amd64.deb
+# Download linvclipboard_3.1.0-1_amd64.deb and SHA256SUMS, then verify:
+sha256sum --ignore-missing -c SHA256SUMS
+
+# Install (apt resolves dependencies automatically):
+sudo apt install ./linvclipboard_3.1.0-1_amd64.deb
 ```
 
-That's it. The daemon starts automatically. Press **`Super+.`** to open the overlay.
+That's it. The daemon starts automatically. Press **`Ctrl+/`** to open the overlay.
 
-> The package includes everything: `clipd` (daemon), `clipctl` (CLI), `linvclip-ui` (overlay), systemd service + update timer, desktop entry, and icon.
+> The package includes everything: `clipd` (daemon), `clipctl` (CLI), `linvclip-ui` (overlay), systemd service + update timer, desktop entry, man pages, and icon.
+
+### Fedora/RHEL (.rpm)
+
+```bash
+sha256sum --ignore-missing -c SHA256SUMS
+sudo dnf install ./linvclipboard-3.1.0-1.x86_64.rpm
+```
+
+### Other distros (tarball)
+
+```bash
+sha256sum --ignore-missing -c SHA256SUMS
+tar xzf linvclipboard-3.1.0-linux-x86_64.tar.gz
+cd linvclipboard-3.1.0-linux-x86_64
+./install-user.sh   # installs to ~/.local, no root needed
+```
+
+### Windows
+
+No Windows installer is published yet — the `winget`/`scoop`/`chocolatey`
+manifests in `windows/publish/` are filled in by the CI release job once a
+signed Windows build exists. Track progress in
+[Releases](https://github.com/DreamerX00/LinVClipBoard/releases).
 
 ### Build from source
 
@@ -126,7 +155,7 @@ sudo dpkg -i target/debian/linvclipboard_*_amd64.deb
 
 ### Overlay UI
 
-Press **`Super+.`** (or your custom shortcut) to summon the overlay.
+Press **`Ctrl+/`** (or your custom shortcut) to summon the overlay.
 
 | Key | Action |
 |:----|:-------|
@@ -203,7 +232,8 @@ window_position = "mouse"         # mouse | fixed
 ## 🗑️ Uninstall
 
 ```bash
-sudo dpkg -r linvclipboard
+sudo apt remove linvclipboard
+systemctl --user disable --now clipd.service linvclip-update-check.timer
 
 # Optional: remove user data
 rm -rf ~/.config/linvclip ~/.local/share/linvclip

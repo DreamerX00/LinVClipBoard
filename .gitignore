@@ -1,7 +1,6 @@
 # Rust
 /target/
 **/*.rs.bk
-Cargo.lock
 
 # Tauri
 /crates/linvclip-ui/node_modules/
@@ -41,8 +40,12 @@ multiPlatformPlan.md
 *.pdb
 target/windows/
 *.nsi
-*.nsh
 installer-logs/
+!windows/hooks/*.nsh
+
+# Release artifacts (published by the CI release job, not stored in git)
+/dist/
+crates/linvclip-ui/src-tauri/binaries/
 
 # Deb packaging artifacts (standalone scripts, not used by build-deb.sh)
 /install/deb-desktop.desktop

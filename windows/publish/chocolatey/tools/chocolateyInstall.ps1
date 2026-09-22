@@ -1,7 +1,7 @@
 $ErrorActionPreference = 'Stop'
 
 $packageName = 'linvclipboard'
-$url = 'https://github.com/akash-singh/LinVClipBoard/releases/download/v3.0.0/LinVClipBoard_3.0.0_x64-setup.exe'
+$url = 'https://github.com/DreamerX00/LinVClipBoard/releases/download/v3.1.0/LinVClipBoard_3.1.0_x64-setup.exe'
 $checksum = 'SHA256_HASH'
 $checksumType = 'sha256'
 
