@@ -248,7 +248,9 @@ if command -v gtk-update-icon-cache >/dev/null 2>&1; then
     gtk-update-icon-cache -f /usr/share/icons/hicolor 2>/dev/null || true
 fi
 
-# Free up Super+. from IBus emoji picker so LinVClipBoard can use it.
+# NOTE: legacy IBus emoji-hotkey handling below references Super+., the
+# pre-3.1 default. The current default overlay shortcut is Ctrl+/ and this
+# block only preserves backward compatibility (do not extend it).
 # Save the original value so we can restore on uninstall.
 free_shortcut() {
     USER="$1"

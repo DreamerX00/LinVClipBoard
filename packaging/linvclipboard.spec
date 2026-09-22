@@ -34,7 +34,7 @@ and a beautiful overlay UI. Works on X11 and Wayland.
 Includes:
   clipd       — background clipboard capture daemon
   clipctl     — CLI client
-  linvclip-ui — Tauri overlay window (Super+.)
+  linvclip-ui — Tauri overlay window (Ctrl+/)
 
 %prep
 %setup -q
