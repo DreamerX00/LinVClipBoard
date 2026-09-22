@@ -178,10 +178,13 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: windows-installer
+          # The UI crate is a workspace member, so cargo/tauri write to the
+          # workspace-level target dir, not crates/linvclip-ui/src-tauri/target.
           path: |
-            crates/linvclip-ui/src-tauri/target/release/bundle/nsis/*.exe
-            crates/linvclip-ui/src-tauri/target/release/bundle/nsis/*.sig
-            crates/linvclip-ui/src-tauri/target/release/bundle/nsis/*.nsis.zip
+            target/release/bundle/nsis/*.exe
+            target/release/bundle/nsis/*.sig
+            target/release/bundle/nsis/*.nsis.zip
+          if-no-files-found: error
       - name: Upload Windows binaries
         uses: actions/upload-artifact@v6
         with:
@@ -224,7 +227,8 @@ jobs:
         with:
           name: windows-installer-cross
           path: |
-            crates/linvclip-ui/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+            target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+          if-no-files-found: error
 
   release:
     name: Release
