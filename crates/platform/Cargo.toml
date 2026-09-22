@@ -22,7 +22,7 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 dirs = "5"
 
 [target.'cfg(windows)'.dependencies]
-tokio = { version = "1", features = ["net", "io-util"] }
+tokio = { version = "1", features = ["net", "io-util", "time"] }
 clipboard-win = { version = "5", features = ["monitor"] }
 winreg = "0.52"
 enigo = { version = "0.3", features = ["serde"] }

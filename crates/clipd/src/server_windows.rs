@@ -1,4 +1,5 @@
 use platform::ipc::{recv_message, send_message};
+use platform::ClipboardProvider;
 use platform::IpcTransport;
 use platform::WindowsClipboardProvider;
 use platform::WindowsIpcTransport;

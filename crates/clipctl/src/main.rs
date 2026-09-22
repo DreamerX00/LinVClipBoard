@@ -308,7 +308,11 @@ fn daemon_not_running_msg(e: std::io::Error) -> ! {
     }
     #[cfg(windows)]
     {
-        eprintln!("{}", "Error: clipd daemon is not running.".red().bold());
+        eprintln!(
+            "{} clipd daemon is not running ({})",
+            "Error:".red().bold(),
+            e
+        );
         eprintln!("Start it with: {}", "clipd".cyan());
         eprintln!("Or run: clipd.exe from the Start Menu");
     }

@@ -32,7 +32,7 @@ pub async fn run(
                 Ok(Some(text)) => {
                     let checksum = compute_checksum(text.as_bytes());
                     if checksum != last_text_checksum {
-                        last_text_checksum = checksum;
+                        last_text_checksum = checksum.clone();
                         let preview = text.chars().take(200).collect::<String>();
                         let size = text.len() as u64;
                         let item = ClipboardItem::new(

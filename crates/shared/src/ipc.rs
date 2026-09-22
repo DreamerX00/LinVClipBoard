@@ -6,7 +6,9 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixStream;
 
 /// Length-prefix frame size (4 bytes, big-endian u32).
+#[cfg(unix)]
 const FRAME_HEADER_SIZE: usize = 4;
+#[cfg(unix)]
 const MAX_MESSAGE_SIZE: usize = 64 * 1024 * 1024; // 64MB max message
 
 /// Send an IPC message over a stream with length-prefix framing.
