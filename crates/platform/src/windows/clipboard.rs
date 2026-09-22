@@ -68,8 +68,6 @@ impl ClipboardProvider for WindowsClipboardProvider {
         if clipboard_win::is_format_avail(html_format) {
             let raw: Vec<u8> = get_clipboard(formats::RawData(html_format))
                 .map_err(|e| PlatformError::Clipboard(format!("get_html: {}", e)))?;
-            // CF_HTML is specified as UTF-8; tolerate malformed bytes rather than fail.
-            let raw = String::from_utf8_lossy(&raw);
             Ok(Some(extract_html_fragment(&raw)))
         } else {
             Ok(None)
@@ -89,21 +87,29 @@ impl ClipboardProvider for WindowsClipboardProvider {
 ///   StartFragment:...
 ///   EndFragment:...
 ///   ...<html>...
-fn extract_html_fragment(cf_html: &str) -> String {
-    let start = cf_html
-        .lines()
-        .find_map(|line| line.strip_prefix("StartFragment:"))
-        .and_then(|s| s.trim().parse::<usize>().ok())
-        .unwrap_or(0);
-    let end = cf_html
-        .lines()
-        .find_map(|line| line.strip_prefix("EndFragment:"))
-        .and_then(|s| s.trim().parse::<usize>().ok())
-        .unwrap_or(cf_html.len());
+///
+/// The Start/End offsets are *byte* offsets into the UTF-8 payload, so the
+/// slice is taken on the raw bytes first and only then converted (lossily) to
+/// a `String`; converting first could shift offsets or split a character.
+fn extract_html_fragment(cf_html: &[u8]) -> String {
+    // Windows hands back a NUL-terminated buffer; drop trailing NULs.
+    let end_of_data = cf_html.iter().rposition(|&b| b != 0).map_or(0, |i| i + 1);
+    let cf_html = &cf_html[..end_of_data];
+
+    // The header is plain ASCII, so a lossy view is fine for parsing it.
+    let header = String::from_utf8_lossy(cf_html);
+    let offset = |key: &str| {
+        header
+            .lines()
+            .find_map(|line| line.strip_prefix(key))
+            .and_then(|s| s.trim().parse::<usize>().ok())
+    };
+    let start = offset("StartFragment:").unwrap_or(0);
+    let end = offset("EndFragment:").unwrap_or(cf_html.len());
 
     if start < end && end <= cf_html.len() {
-        cf_html[start..end].to_string()
+        String::from_utf8_lossy(&cf_html[start..end]).into_owned()
     } else {
-        cf_html.to_string()
+        header.into_owned()
     }
 }
