@@ -167,8 +167,12 @@ jobs:
           if ($env:TAURI_SIGNING_PRIVATE_KEY) {
             npx tauri build --bundles nsis
           } else {
-            # ponytail: no signing key -> disable updater artifacts so unsigned builds still ship
-            npx tauri build --bundles nsis --config '{"bundle":{"createUpdaterArtifacts":false}}'
+            # No signing key -> disable updater artifacts so unsigned builds still ship.
+            # The override goes through a file: inline JSON loses its quotes when
+            # PowerShell hands it to the npx .cmd shim, and the CLI then fails to parse it.
+            Remove-Item Env:TAURI_SIGNING_PRIVATE_KEY, Env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD -ErrorAction SilentlyContinue
+            Set-Content -Path ci-no-updater.json -Value '{"bundle":{"createUpdaterArtifacts":false}}' -NoNewline
+            npx tauri build --bundles nsis --config ci-no-updater.json
           }
       - name: Upload Windows installer
         uses: actions/upload-artifact@v6
