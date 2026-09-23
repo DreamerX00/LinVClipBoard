@@ -327,6 +327,13 @@ jobs:
             echo "::error::Installer version $VERSION does not match tag $GITHUB_REF_NAME — bump the version before tagging"
             exit 1
           fi
+          # The app's own check (check_for_updates in lib.rs) reads this file
+          # too — on Linux and as the Windows fallback — because unlike the
+          # GitHub API it has no rate limit. The linux-x86_64 entry is for
+          # that path only: the .deb is verified via SHA256SUMS, not a
+          # signature, and the updater plugin is never used on Linux.
+          DEB_NAME=$(basename target/debian/*.deb)
+          BASE="https://github.com/DreamerX00/LinVClipBoard/releases/download/${GITHUB_REF_NAME}"
           # jq does the quoting: the notes are multi-line Markdown and the
           # signature is base64 that must land in the JSON byte-for-byte.
           jq -n \
@@ -334,9 +341,13 @@ jobs:
             --rawfile notes release-notes.md \
             --arg pub_date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             --rawfile signature "$SIG_FILE" \
-            --arg url "https://github.com/DreamerX00/LinVClipBoard/releases/download/${GITHUB_REF_NAME}/${EXE_NAME}" \
+            --arg exe_url "$BASE/$EXE_NAME" \
+            --arg deb_url "$BASE/$DEB_NAME" \
             '{version: $version, notes: $notes, pub_date: $pub_date,
-              platforms: {"windows-x86_64": {signature: ($signature | rtrimstr("\n")), url: $url}}}' \
+              platforms: {
+                "windows-x86_64": {signature: ($signature | rtrimstr("\n")), url: $exe_url},
+                "linux-x86_64":   {signature: "", url: $deb_url}
+              }}' \
             > update-windows-x86_64.json
           cat update-windows-x86_64.json
       - name: Collect assets and write SHA256SUMS

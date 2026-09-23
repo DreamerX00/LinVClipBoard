@@ -654,7 +654,15 @@ fn parse_version(s: &str) -> (Vec<u32>, bool) {
 /// Check GitHub releases for a newer version.
 ///
 /// This is the update source on Linux and the fallback on Windows when the
-/// signed manifest (`check_for_updates_via_plugin`) cannot be fetched.
+/// updater plugin cannot verify (`check_for_updates_via_plugin`).
+///
+/// Sources, in order:
+/// 1. the release's update manifest (`update-windows-x86_64.json`, written
+///    by the CI release job) served from `releases/latest/download/` — a
+///    plain file on GitHub's CDN, so no API rate limit applies;
+/// 2. the GitHub REST API. Unauthenticated calls share a 60/hour limit per
+///    source IP, so users behind a shared NAT can get 403 from it — which is
+///    why it is the fallback and not the primary source.
 #[tauri::command]
 async fn check_for_updates() -> Result<UpdateInfo, String> {
     let current = env!("CARGO_PKG_VERSION");
@@ -665,6 +673,77 @@ async fn check_for_updates() -> Result<UpdateInfo, String> {
         .build()
         .map_err(|e| format!("HTTP client error: {}", e))?;
 
+    let mut info = match check_via_manifest(&client).await {
+        Ok(info) => info,
+        Err(manifest_err) => check_via_github_api(&client)
+            .await
+            .map_err(|api_err| format!("{} (update manifest: {})", api_err, manifest_err))?,
+    };
+
+    // The package this build can install: the .deb on Linux (only where dpkg
+    // exists — tarball/RPM/Arch users get "Visit GitHub" instead of a failed
+    // install), the NSIS installer on Windows.
+    if cfg!(unix) {
+        let has_dpkg = ["/usr/bin/dpkg", "/bin/dpkg"]
+            .iter()
+            .any(|p| std::path::Path::new(p).exists());
+        if !has_dpkg {
+            info.download_url.clear();
+        }
+    }
+
+    info.current_version = current.to_string();
+    info.has_update = parse_version(&info.latest_version) > parse_version(current);
+    Ok(info)
+}
+
+const RELEASES_URL: &str = "https://github.com/DreamerX00/LinVClipBoard/releases";
+
+/// Update source 1: the signed update manifest of the latest release.
+async fn check_via_manifest(client: &reqwest::Client) -> Result<UpdateInfo, String> {
+    let body: serde_json::Value = client
+        .get(format!(
+            "{}/latest/download/update-windows-x86_64.json",
+            RELEASES_URL
+        ))
+        .send()
+        .await
+        .map_err(|e| format!("Network error: {}", e))?
+        .error_for_status()
+        .map_err(|e| format!("HTTP error: {}", e))?
+        .json()
+        .await
+        .map_err(|e| format!("Parse error: {}", e))?;
+
+    let latest = body["version"]
+        .as_str()
+        .ok_or("No version in update manifest")?
+        .trim_start_matches('v')
+        .to_string();
+    let platform = if cfg!(unix) {
+        "linux-x86_64"
+    } else {
+        "windows-x86_64"
+    };
+    let download_url = body["platforms"][platform]["url"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
+
+    Ok(UpdateInfo {
+        has_update: false,
+        current_version: String::new(),
+        latest_version: latest.clone(),
+        release_url: format!("{}/tag/v{}", RELEASES_URL, latest),
+        release_notes: body["notes"].as_str().unwrap_or_default().to_string(),
+        download_url,
+        checksum_url: format!("{}/download/v{}/SHA256SUMS", RELEASES_URL, latest),
+    })
+}
+
+/// Update source 2: the GitHub REST API (also covers releases that predate
+/// the manifest).
+async fn check_via_github_api(client: &reqwest::Client) -> Result<UpdateInfo, String> {
     let resp = client
         .get("https://api.github.com/repos/DreamerX00/LinVClipBoard/releases/latest")
         .send()
@@ -682,11 +761,7 @@ async fn check_for_updates() -> Result<UpdateInfo, String> {
 
     let tag = body["tag_name"].as_str().ok_or("No tag_name in response")?;
     let latest = tag.trim_start_matches('v');
-    let html_url = body["html_url"]
-        .as_str()
-        .unwrap_or("https://github.com/DreamerX00/LinVClipBoard/releases");
-
-    let release_notes = body["body"].as_str().unwrap_or("").to_string();
+    let html_url = body["html_url"].as_str().unwrap_or(RELEASES_URL);
 
     let asset_url = |pred: &dyn Fn(&str) -> bool| -> String {
         body["assets"]
@@ -703,34 +778,20 @@ async fn check_for_updates() -> Result<UpdateInfo, String> {
             })
             .unwrap_or_default()
     };
-
-    // The package this build can install: the .deb on Linux (only where dpkg
-    // exists — tarball/RPM/Arch users get "Visit GitHub" instead of a failed
-    // install), the NSIS installer on Windows.
     let download_url = if cfg!(unix) {
-        let has_dpkg = ["/usr/bin/dpkg", "/bin/dpkg"]
-            .iter()
-            .any(|p| std::path::Path::new(p).exists());
-        if has_dpkg {
-            asset_url(&|n| n.ends_with(".deb"))
-        } else {
-            String::new()
-        }
+        asset_url(&|n| n.ends_with(".deb"))
     } else {
         asset_url(&|n| n.ends_with("-setup.exe"))
     };
-    let checksum_url = asset_url(&|n| n == "SHA256SUMS");
-
-    let has_update = parse_version(latest) > parse_version(current);
 
     Ok(UpdateInfo {
-        has_update,
-        current_version: current.to_string(),
+        has_update: false,
+        current_version: String::new(),
         latest_version: latest.to_string(),
         release_url: html_url.to_string(),
-        release_notes,
+        release_notes: body["body"].as_str().unwrap_or("").to_string(),
         download_url,
-        checksum_url,
+        checksum_url: asset_url(&|n| n == "SHA256SUMS"),
     })
 }
 
@@ -750,16 +811,18 @@ async fn fetch_expected_sha256(
         .text()
         .await
         .map_err(|e| format!("Checksum download failed: {}", e))?;
-    // sha256sum format: "<hex>  <name>" (also accepts "*<name>" binary mode)
-    text.lines()
-        .filter_map(|line| {
-            let mut it = line.split_whitespace();
-            let hash = it.next()?;
-            let name = it.next()?.trim_start_matches('*');
-            (name == asset && hash.len() == 64).then(|| hash.to_ascii_lowercase())
-        })
-        .next()
-        .ok_or_else(|| format!("SHA256SUMS has no entry for {}", asset))
+    find_sha256_entry(&text, asset).ok_or_else(|| format!("SHA256SUMS has no entry for {}", asset))
+}
+
+/// Look up `asset` in `sha256sum` output ("<hex>  <name>", or "*<name>" in
+/// binary mode) and return its lowercase hex digest.
+fn find_sha256_entry(sums: &str, asset: &str) -> Option<String> {
+    sums.lines().find_map(|line| {
+        let mut it = line.split_whitespace();
+        let hash = it.next()?;
+        let name = it.next()?.trim_start_matches('*');
+        (name == asset && hash.len() == 64).then(|| hash.to_ascii_lowercase())
+    })
 }
 
 /// Download an update package (.deb on Linux, NSIS .exe on Windows) from
@@ -2029,4 +2092,38 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running LinVClipBoard");
+}
+
+#[cfg(test)]
+mod update_tests {
+    use super::{find_sha256_entry, parse_version};
+
+    #[test]
+    fn version_compare_is_numeric_and_prerelease_aware() {
+        assert!(parse_version("3.3.0") > parse_version("3.2.1"));
+        assert!(parse_version("3.10.0") > parse_version("3.9.9"));
+        assert!(parse_version("3.3.0") > parse_version("3.3.0-beta.1"));
+        assert!(parse_version("3.3.0-beta.1") > parse_version("3.2.1"));
+        assert_eq!(parse_version("3.3.0"), parse_version("3.3.0"));
+        assert!(parse_version("3.2.1") < parse_version("3.3.0"));
+    }
+
+    #[test]
+    fn sha256sums_lookup() {
+        let sums = "\
+1c44242cd293aa690313433fd1fc801e36f3dc808e3dec6e47e00857b48177c2  LinVClipBoard_3.3.0_x64-setup.exe
+3935B3B32F11B141B3C49F12AE9A333DCA95AA30C15C8A2F4C8100F4E9E169A9 *linvclipboard_3.3.0-1_amd64.deb
+garbage line
+";
+        assert_eq!(
+            find_sha256_entry(sums, "LinVClipBoard_3.3.0_x64-setup.exe").as_deref(),
+            Some("1c44242cd293aa690313433fd1fc801e36f3dc808e3dec6e47e00857b48177c2")
+        );
+        assert_eq!(
+            find_sha256_entry(sums, "linvclipboard_3.3.0-1_amd64.deb").as_deref(),
+            Some("3935b3b32f11b141b3c49f12ae9a333dca95aa30c15c8a2f4c8100f4e9e169a9")
+        );
+        assert_eq!(find_sha256_entry(sums, "SHA256SUMS"), None);
+        assert_eq!(find_sha256_entry(sums, "setup.exe"), None);
+    }
 }
