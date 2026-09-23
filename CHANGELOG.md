@@ -4,20 +4,25 @@ All notable changes to this project are documented here. Versions follow
 [SemVer](https://semver.org/); release artifacts are published on the
 [Releases](https://github.com/DreamerX00/LinVClipBoard/releases) page.
 
-## [3.2.1] - 2026-09-23
+## [3.3.0] - 2026-09-23
+
+### ✨ New
+
+- **In-app updates now work end to end.** Windows builds are signed with the project's updater key and the release carries `update-windows-x86_64.json`, so *Check for Updates* → *Download Now* downloads, verifies, installs (passive installer) and relaunches the app. Linux keeps the `.deb` flow (download → *Install Now* → pkexec) and now verifies the package against the release `SHA256SUMS` first; Windows falls back to the same checksum-verified installer download if the signed manifest is ever unavailable.
+- Release notes are shown in the update dialog on both platforms.
 
 ### 🐛 Fixed
 
-- GIF tab no longer sits on a permanent spinner: a failed categories request now shows an error with a Retry button, and a build without a KLIPY key shows a localized "GIF search is unavailable" message instead of the raw `gif_api_key_missing` code
-- GIF search no longer refetches page 1 in a loop after every response (one request per 300 ms keystroke pause; stale responses are discarded; infinite scroll appends one page at a time)
-- KLIPY requests time out after 10 s instead of hanging
+- GIF tab works in the Windows installer: the Windows build job never received the KLIPY key, so every published `.exe` had GIF search disabled.
+- Windows installer/updater: the NSIS hooks used macro names Tauri never runs, so nothing in them applied. They now stop `clipd.exe` before files are replaced (a running daemon blocked updates), keep autostart and clipboard history across updates, and respect the uninstaller's "delete app data" choice for clipd's data.
+- Update check has a 15 s timeout instead of hanging on a stalled connection, treats pre-release versions correctly, and only offers the `.deb` on systems that have `dpkg` (others get *Visit GitHub*).
 
 ### 🔧 Build / CI
 
-- The KLIPY app key can be supplied via the `KLIPY_API_KEY` environment variable (CI secret); `klipy.key` remains the local-dev fallback, and `cargo` now warns when a build has no key
-- Frontend ESLint + Vitest gates (`npm run lint`, `npm test`) run in the Lint job and `make ci`
+- Tag builds fail early when `KLIPY_API_KEY` or `TAURI_SIGNING_PRIVATE_KEY` is missing, and the release job refuses to publish without a signed installer whose version matches the tag — a release can no longer silently ship without update support.
+- `CONTRIBUTING.md` documents the updater signing key and why it must not be rotated casually.
 
-## [Unreleased]
+## [3.2.1] - 2026-09-23
 
 ### 🐛 Fixed
 

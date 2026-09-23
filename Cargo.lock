@@ -662,7 +662,7 @@ dependencies = [
 
 [[package]]
 name = "clipctl"
-version = "3.2.1"
+version = "3.3.0"
 dependencies = [
  "chrono",
  "clap",
@@ -676,7 +676,7 @@ dependencies = [
 
 [[package]]
 name = "clipd"
-version = "3.2.1"
+version = "3.3.0"
 dependencies = [
  "anyhow",
  "arboard",
@@ -2705,7 +2705,7 @@ checksum = "32a66949e030da00e8c7d4434b251670a91556f4144941d37452769c25d58a53"
 
 [[package]]
 name = "linvclip-ui"
-version = "3.2.1"
+version = "3.3.0"
 dependencies = [
  "arboard",
  "base64 0.22.1",
@@ -4850,7 +4850,7 @@ dependencies = [
 
 [[package]]
 name = "shared"
-version = "3.2.1"
+version = "3.3.0"
 dependencies = [
  "chrono",
  "dirs 5.0.1",

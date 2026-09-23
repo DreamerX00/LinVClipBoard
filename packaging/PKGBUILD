@@ -1,6 +1,6 @@
 # Maintainer: LinVClipBoard Contributors
 pkgname=linvclipboard
-pkgver=3.2.1
+pkgver=3.3.0
 pkgrel=1
 pkgdesc="Win+V style clipboard manager for Linux — daemon, CLI, and overlay UI"
 arch=('x86_64' 'aarch64')
