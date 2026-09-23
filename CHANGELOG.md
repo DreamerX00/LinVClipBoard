@@ -4,6 +4,28 @@ All notable changes to this project are documented here. Versions follow
 [SemVer](https://semver.org/); release artifacts are published on the
 [Releases](https://github.com/DreamerX00/LinVClipBoard/releases) page.
 
+## [3.2.0] - 2026-09-23
+
+### ✨ New
+
+- First official Windows build: NSIS installer (`LinVClipBoard_3.2.0_x64-setup.exe`) published to Releases, with `clipd`/`clipctl` bundled
+- Windows auto-update feed (`update-windows-x86_64.json`) for the Tauri updater
+- winget, Scoop, and Chocolatey manifests point at the real 3.2.0 downloads
+- One-line Linux installer (`curl …/install.sh | bash`) with checksum verification, plus a jsDelivr mirror
+- Interactive release pilot (`make release`): prompts, live CI watch, asset upload
+
+### 🐛 Fixed
+
+- CI green on every job (lint, Linux + Windows tests, daemon matrix, UI, Windows build) after months red
+- Windows platform layer compiles: clipboard/input/monitor type errors fixed
+- README install instructions rewritten (correct hotkey `Ctrl+/`, real asset names, verified emoji count)
+
+### 🔧 Changed
+
+- Linux packaging optimized: `.deb` declares real `Depends`, `.rpm` + portable tarball + `SHA256SUMS` shipped together
+- Release binaries no longer stored in git — CI publishes them on tag
+- `Cargo.lock` committed and `--locked`/`npm ci` enforced for reproducible builds
+
 ## [3.1.0] - 2026-09-22
 
 ### Distribution (new)

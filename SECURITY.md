@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-Only the latest release (currently 3.1.0) receives security fixes.
+Only the latest release (currently 3.2.0) receives security fixes.
 
 ## Reporting a vulnerability
 
