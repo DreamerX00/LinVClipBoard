@@ -1,4 +1,4 @@
-.PHONY: build build-ui frontend deb rpm appimage install clean check test lint ci completions manpages \
+.PHONY: build build-ui frontend deb rpm appimage tarball release install clean check test lint ci completions manpages \
         build-win build-win-cross build-win-ui
 
 build:
@@ -37,6 +37,15 @@ rpm: build-all
 
 appimage: build-all
 	bash packaging/build-appimage.sh
+
+tarball: build-all
+	./packaging/build-tarball.sh
+
+# Interactive release: prompts for version + notes, bumps every synced version
+# file, updates CHANGELOG.md, commits, tags, pushes, then builds (locally and/or
+# on GitHub Actions) and publishes the GitHub release. See scripts/release.sh.
+release:
+	./scripts/release.sh
 
 completions: build
 	mkdir -p target/completions

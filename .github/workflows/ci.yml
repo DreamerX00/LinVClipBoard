@@ -250,7 +250,9 @@ jobs:
       - name: Build all
         run: make build-all
       - name: Package .deb
-        run: make deb
+        run: ./packaging/build-deb.sh --skip-build
+      - name: Package portable tarball
+        run: ./packaging/build-tarball.sh
       - name: Download Windows artifacts
         uses: actions/download-artifact@v7
         with:
@@ -283,14 +285,37 @@ jobs:
             }
           }
           EOF
+      - name: Collect assets and write SHA256SUMS
+        # install.sh downloads SHA256SUMS next to the .deb and refuses to
+        # install without it, so the checksum file is not optional.
+        run: |
+          mkdir -p release-assets
+          cp target/debian/*.deb target/tarball/*.tar.gz release-assets/
+          cp windows-installer/*.exe release-assets/
+          cp windows-installer/*.sig release-assets/ 2>/dev/null || true
+          if [ -f update-windows-x86_64.json ]; then cp update-windows-x86_64.json release-assets/; fi
+          cd release-assets && sha256sum -- * > SHA256SUMS && cat SHA256SUMS
+      - name: Release notes
+        # Body = the CHANGELOG.md section for this version (scripts/release.sh
+        # writes it), else the annotated tag message, else a one-liner. GitHub's
+        # generated "What's Changed" list is appended underneath either way.
+        run: |
+          if ! ./packaging/release-notes.sh "$GITHUB_REF_NAME" > release-notes.md 2>/dev/null; then
+            git for-each-ref "refs/tags/$GITHUB_REF_NAME" --format='%(contents:body)' > release-notes.md
+          fi
+          if [ -z "$(tr -d '[:space:]' < release-notes.md)" ]; then
+            echo "Release $GITHUB_REF_NAME of LinVClipBoard." > release-notes.md
+          fi
+          cat release-notes.md
       - name: Create GitHub Release
+        # A "-" in the tag (v3.2.0-beta.1) marks a pre-release. If
+        # scripts/release.sh already created the release (local build mode),
+        # this updates it in place and adds the CI-built assets.
         uses: softprops/action-gh-release@v3
         with:
-          files: |
-            target/debian/*.deb
-            windows-installer/*.exe
-            windows-installer/*.sig
-            update-windows-x86_64.json
+          files: release-assets/*
+          body_path: release-notes.md
+          prerelease: ${{ contains(github.ref_name, '-') }}
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

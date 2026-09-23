@@ -35,13 +35,40 @@ action `.github/actions/linux-deps` — if you add one, update both places.
 5. **Never commit binaries or generated files.** `dist/`, `*.exe`,
    `src-tauri/resources/*.exe` and `src-tauri/gen/schemas/` are gitignored.
    Release artifacts are produced by the CI `release` job when a `v*` tag is
-   pushed.
+   pushed (see "Cutting a release" below).
 6. **Run the gates before pushing:** `make ci` — builds the frontend, then
    runs the same `cargo fmt`, `cargo clippy --all-targets -D warnings` and
    `cargo test` invocations as the Lint/Test jobs in
    `.github/workflows/ci.yml`. Windows-only code is compiled and tested by the
    `windows-2025` jobs on the PR.
 7. Update `CHANGELOG.md` for user-visible changes.
+
+## Cutting a release
+
+```bash
+make release        # = scripts/release.sh
+```
+
+The script is interactive: it asks for the version (suggesting the next
+patch/minor/major), a headline, and the release notes (opens `$EDITOR` with a
+template), then shows a plan and, on confirmation:
+
+1. bumps every file from rule 1 above plus `README.md`, `docs/INSTALL.md` and
+   `SECURITY.md`, re-syncs `Cargo.lock`/`package-lock.json`, and adds a
+   `## [X.Y.Z] - date` section with your notes to `CHANGELOG.md`;
+2. commits `Release vX.Y.Z`, creates an annotated tag and pushes both;
+3. builds the artifacts — on GitHub Actions (default; the Windows `.exe` is
+   built on a real Windows runner and you watch the jobs live), locally
+   (`.deb` + `.tar.gz`, plus the `.exe` when `cargo-xwin` and `makensis` are
+   installed), or both;
+4. publishes the GitHub release with your notes, GitHub's generated
+   "What's Changed" list, the `.deb`, `.tar.gz`, `.exe` and `SHA256SUMS`.
+
+`scripts/release.sh --dry-run` walks through everything without changing
+anything; `--help` lists the flags for non-interactive use. Everything up to
+the push can be rolled back from the script if a step fails. The release
+body on a tag push always comes from the matching `CHANGELOG.md` section
+(`packaging/release-notes.sh`), so keep that section accurate.
 
 ## Windows-only Tauri config
 
