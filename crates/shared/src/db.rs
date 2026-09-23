@@ -793,7 +793,7 @@ mod tests {
         db.insert(&make_item("rusty old car")).unwrap();
 
         let (items, _) = db.search("rust", 10, 0).unwrap();
-        assert!(items.len() >= 1);
+        assert!(!items.is_empty());
     }
 
     #[test]

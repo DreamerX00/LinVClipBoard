@@ -8,32 +8,37 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Read-only token by default; the release job requests contents: write itself.
+permissions:
+  contents: read
+
+# A newer push to the same PR supersedes the running one. Pushes to main and
+# tags are never cancelled — a tag run publishes the release.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   CARGO_TERM_COLOR: always
+  # Fail loudly if Cargo.lock is out of date instead of silently rewriting it
+  # on the runner. Keeps CI on exactly the dependency versions in git.
+  CARGO_FLAGS: --locked
 
 jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
+      - uses: ./.github/actions/rust-toolchain
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-node@v6
         with:
           node-version: 20
           cache: npm
           cache-dependency-path: crates/linvclip-ui/package-lock.json
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential pkg-config libsqlite3-dev \
-            libxcb1-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
-            libwayland-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev \
-            libgtk-3-dev libglib2.0-dev libgdk-pixbuf-2.0-dev libatk1.0-dev \
-            libpango1.0-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
+      - uses: ./.github/actions/linux-deps
       - name: Build frontend
         # tauri::generate_context!() embeds `frontendDist` at compile time and
         # fails if the directory is missing, so clippy needs the built assets.
@@ -42,7 +47,7 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
       - name: Clippy
-        run: cargo clippy --workspace -- -D warnings
+        run: cargo clippy --workspace --all-targets ${{ env.CARGO_FLAGS }} -- -D warnings
 
   test:
     name: Test (${{ matrix.os }})
@@ -51,9 +56,10 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: ./.github/actions/rust-toolchain
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-node@v6
         with:
@@ -63,82 +69,72 @@ jobs:
       - name: Enable long paths (Windows)
         if: matrix.os == 'windows-latest'
         run: git config --system core.longpaths true
-      - name: Install Linux system dependencies
+      - uses: ./.github/actions/linux-deps
         if: matrix.os == 'ubuntu-latest'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential pkg-config libsqlite3-dev \
-            libxcb1-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
-            libwayland-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev \
-            libgtk-3-dev libglib2.0-dev libgdk-pixbuf-2.0-dev libatk1.0-dev \
-            libpango1.0-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
       - name: Build frontend
         # tauri::generate_context!() embeds `frontendDist` at compile time and
         # fails if the directory is missing, so the UI crate's tests need it.
         working-directory: crates/linvclip-ui
         run: npm ci && npm run build
       - name: Build daemon binaries for Tauri resources (Windows)
-        # tauri-build validates bundle.resources at compile time, and the Windows
-        # config bundles clipd.exe/clipctl.exe — so they must exist before the
-        # linvclip-ui crate (and therefore cargo test --workspace) can compile.
+        # tauri-build validates bundle.resources at compile time, and
+        # tauri.windows.conf.json bundles clipd.exe/clipctl.exe — so they must
+        # exist before the linvclip-ui crate (and therefore
+        # cargo test --workspace) can compile.
         if: matrix.os == 'windows-latest'
         shell: pwsh
         run: |
-          cargo build -p clipd -p clipctl
+          cargo build ${{ env.CARGO_FLAGS }} -p clipd -p clipctl
           Copy-Item "target/debug/clipd.exe" "crates/linvclip-ui/src-tauri/resources/" -Force
           Copy-Item "target/debug/clipctl.exe" "crates/linvclip-ui/src-tauri/resources/" -Force
       - name: Run tests
-        run: cargo test --workspace
+        run: cargo test --workspace ${{ env.CARGO_FLAGS }}
 
   build-daemon:
     name: Build Daemon (${{ matrix.target }})
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     strategy:
+      fail-fast: false
       matrix:
         target: [x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu]
     steps:
       - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
+      - uses: ./.github/actions/rust-toolchain
+      - run: rustup target add ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
       - name: Install cross
         run: cargo install cross --git https://github.com/cross-rs/cross
       - name: Build
-        run: cross build --release --target ${{ matrix.target }} -p clipd -p clipctl
+        run: cross build --release ${{ env.CARGO_FLAGS }} --target ${{ matrix.target }} -p clipd -p clipctl
 
   build-ui:
     name: Build UI
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: ./.github/actions/rust-toolchain
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-node@v6
         with:
           node-version: 20
           cache: npm
           cache-dependency-path: crates/linvclip-ui/package-lock.json
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential pkg-config libsqlite3-dev \
-            libxcb1-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
-            libwayland-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev \
-            libgtk-3-dev libglib2.0-dev libgdk-pixbuf-2.0-dev libatk1.0-dev \
-            libpango1.0-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
+      - uses: ./.github/actions/linux-deps
       - name: Build UI
         working-directory: crates/linvclip-ui
-        run: npm ci && npx tauri build
+        # Also checks that the npm @tauri-apps/* versions match the Rust tauri
+        # crates — the CLI refuses to build on a major/minor mismatch.
+        run: npm ci && npx tauri build -- ${{ env.CARGO_FLAGS }}
 
   build-windows:
     name: Build Windows
     runs-on: windows-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-pc-windows-msvc
+      - uses: ./.github/actions/rust-toolchain
       - uses: actions/setup-node@v6
         with:
           node-version: 20
@@ -151,7 +147,7 @@ jobs:
         working-directory: crates/linvclip-ui
         run: npm ci
       - name: Build Rust binaries
-        run: cargo build --release -p clipd -p clipctl
+        run: cargo build --release ${{ env.CARGO_FLAGS }} -p clipd -p clipctl
       - name: Copy binaries to Tauri resources
         shell: pwsh
         run: |
@@ -165,14 +161,14 @@ jobs:
         working-directory: crates/linvclip-ui
         run: |
           if ($env:TAURI_SIGNING_PRIVATE_KEY) {
-            npx tauri build --bundles nsis
+            npx tauri build --bundles nsis -- ${{ env.CARGO_FLAGS }}
           } else {
             # No signing key -> disable updater artifacts so unsigned builds still ship.
             # The override goes through a file: inline JSON loses its quotes when
             # PowerShell hands it to the npx .cmd shim, and the CLI then fails to parse it.
             Remove-Item Env:TAURI_SIGNING_PRIVATE_KEY, Env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD -ErrorAction SilentlyContinue
             Set-Content -Path ci-no-updater.json -Value '{"bundle":{"createUpdaterArtifacts":false}}' -NoNewline
-            npx tauri build --bundles nsis --config ci-no-updater.json
+            npx tauri build --bundles nsis --config ci-no-updater.json -- ${{ env.CARGO_FLAGS }}
           }
       - name: Upload Windows installer
         uses: actions/upload-artifact@v6
@@ -192,17 +188,17 @@ jobs:
           path: |
             target/release/clipd.exe
             target/release/clipctl.exe
+          if-no-files-found: error
 
   build-windows-cross:
     name: Build Windows (cross)
     # ponytail: fallback build only — duplicates build-windows, so run on manual dispatch only
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-pc-windows-msvc
+      - uses: ./.github/actions/rust-toolchain
       - uses: actions/setup-node@v6
         with:
           node-version: 20
@@ -213,7 +209,7 @@ jobs:
           sudo apt-get install -y nsis lld llvm mingw-w64
           cargo install cargo-xwin
       - name: Build Rust binaries (cross)
-        run: cargo xwin build --release --target x86_64-pc-windows-msvc -p clipd -p clipctl
+        run: cargo xwin build --release ${{ env.CARGO_FLAGS }} --target x86_64-pc-windows-msvc -p clipd -p clipctl
       - name: Build Tauri (cross)
         run: |
           mkdir -p crates/linvclip-ui/src-tauri/resources
@@ -221,7 +217,7 @@ jobs:
           cp target/x86_64-pc-windows-msvc/release/clipctl.exe crates/linvclip-ui/src-tauri/resources/
           cd crates/linvclip-ui
           npm ci
-          npx tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc --bundles nsis
+          npx tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc --bundles nsis -- ${{ env.CARGO_FLAGS }}
       - name: Upload cross-compiled installer
         uses: actions/upload-artifact@v6
         with:
@@ -234,24 +230,20 @@ jobs:
     name: Release
     needs: [lint, test, build-daemon, build-ui, build-windows]
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: ./.github/actions/rust-toolchain
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-node@v6
         with:
           node-version: 20
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential pkg-config libsqlite3-dev \
-            libxcb1-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
-            libwayland-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev \
-            libgtk-3-dev libglib2.0-dev libgdk-pixbuf-2.0-dev libatk1.0-dev \
-            libpango1.0-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
+          cache: npm
+          cache-dependency-path: crates/linvclip-ui/package-lock.json
+      - uses: ./.github/actions/linux-deps
       - name: Build all
         run: make build-all
       - name: Package .deb
