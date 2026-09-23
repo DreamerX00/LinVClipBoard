@@ -25,9 +25,6 @@ Thumbs.db
 *.db-journal
 blobs/
 
-# Embedded API keys (never commit)
-klipy.key
-
 # Upgrade plan (internal planning docs)
 upgrade-plan/
 

@@ -181,7 +181,7 @@ describe("GifPicker – debounced search", () => {
         expect(spinners()).toHaveLength(0);
     });
 
-    it("shows a localized message (not the raw code) when the build has no API key", async () => {
+    it("shows a localized message (not the raw code) when no API key is configured", async () => {
         invoke.mockImplementation((cmd) => {
             if (cmd === "fetch_gif_categories") return Promise.reject("gif_api_key_missing");
             if (cmd === "fetch_gifs") return Promise.reject("gif_api_key_missing");
@@ -190,12 +190,15 @@ describe("GifPicker – debounced search", () => {
 
         const { setQuery } = renderPicker("");
         await tick(0);
-        // Categories view
-        expect(screen.getByRole("alert")).toHaveTextContent(en.gif.api_key_missing);
+        // Categories view: the friendly text alone, no "Couldn't load" headline
+        const alert = screen.getByRole("alert");
+        expect(alert).toHaveTextContent(en.gif.api_key_missing);
+        expect(alert).not.toHaveTextContent(en.gif.categories_failed);
         expect(screen.queryByText(/gif_api_key_missing/)).not.toBeInTheDocument();
         expect(spinners()).toHaveLength(0);
-        // A missing compile-time key cannot be fixed by retrying.
-        expect(screen.queryByRole("button", { name: en.gif.retry })).not.toBeInTheDocument();
+        // The key comes from gif-provider.json at runtime, so it can be fixed
+        // upstream while the app is running: Retry must be offered.
+        expect(screen.getByRole("button", { name: en.gif.retry })).toBeInTheDocument();
 
         // Results view
         setQuery("hello");
@@ -210,6 +213,35 @@ describe("GifPicker – debounced search", () => {
 });
 
 describe("GifPicker – categories", () => {
+    it.each([
+        ["gif_api_key_invalid", en.gif.api_key_invalid],
+        ["gif_network_error", en.gif.network_error],
+    ])("maps %s to its localized message with a Retry button", async (code, message) => {
+        let fail = true;
+        invoke.mockImplementation((cmd) => {
+            if (cmd === "fetch_gif_categories") {
+                return fail ? Promise.reject(code) : Promise.resolve(CATEGORIES);
+            }
+            return Promise.resolve(undefined);
+        });
+
+        renderPicker("");
+        await tick(0);
+
+        const alert = screen.getByRole("alert");
+        expect(alert).toHaveTextContent(message);
+        expect(alert).not.toHaveTextContent(code);
+        expect(alert).not.toHaveTextContent(en.gif.categories_failed);
+        expect(spinners()).toHaveLength(0);
+
+        // e.g. the maintainer rotated the key in gif-provider.json meanwhile
+        fail = false;
+        fireEvent.click(screen.getByRole("button", { name: en.gif.retry }));
+        await tick(0);
+        expect(categoryCalls()).toHaveLength(2);
+        expect(screen.getByRole("button", { name: "Cats" })).toBeInTheDocument();
+    });
+
     it("(c) shows an error with Retry, not a spinner, when categories fail; Retry refetches", async () => {
         let fail = true;
         invoke.mockImplementation((cmd) => {
@@ -298,7 +330,7 @@ describe("GifPicker – infinite scroll", () => {
 describe("GIF i18n keys", () => {
     it("exist in every locale", () => {
         for (const [name, locale] of Object.entries({ en, pt, ja, hi })) {
-            for (const key of ["retry", "api_key_missing", "categories_failed", "no_results"]) {
+            for (const key of ["retry", "api_key_missing", "api_key_invalid", "network_error", "categories_failed", "no_results"]) {
                 expect(locale.gif?.[key], `${name}.gif.${key}`).toEqual(expect.any(String));
                 expect(locale.gif[key].length, `${name}.gif.${key}`).toBeGreaterThan(0);
             }

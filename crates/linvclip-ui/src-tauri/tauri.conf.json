@@ -28,7 +28,7 @@
             }
         ],
         "security": {
-            "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: https://asset.localhost https://static.klipy.com data:; connect-src 'self' https://api.klipy.com https://api.github.com https://github.com https://objects.githubusercontent.com; script-src 'self'; font-src 'self' data:"
+            "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: https://asset.localhost https: data:; connect-src 'self' https://api.klipy.com https://api.github.com https://github.com https://objects.githubusercontent.com; script-src 'self'; font-src 'self' data:"
         }
     },
     "bundle": {
