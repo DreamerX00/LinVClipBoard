@@ -60,8 +60,24 @@ Built in **Rust + Tauri v2**. Runs as a systemd user service. No Electron. No bl
 
 ## 🚀 Quick Install
 
-> Current release: **v3.1.0**. Grab the files from
-> [Releases](https://github.com/DreamerX00/LinVClipBoard/releases/latest).
+### One line (Debian/Ubuntu)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/DreamerX00/LinVClipBoard/main/install.sh | bash
+```
+
+That downloads the latest `.deb` from
+[Releases](https://github.com/DreamerX00/LinVClipBoard/releases/latest),
+verifies its checksum, and installs it (dependencies resolve automatically).
+The daemon starts on its own — press **`Ctrl+/`** to open the overlay.
+
+> The package includes everything: `clipd` (daemon), `clipctl` (CLI), `linvclip-ui` (overlay), systemd service + update timer, desktop entry, man pages, and icon.
+
+### Manual install
+
+Grab the files for your distro from
+[Releases](https://github.com/DreamerX00/LinVClipBoard/releases/latest)
+(the installer above does this for you on Debian/Ubuntu).
 
 ### Debian/Ubuntu (.deb)
 
