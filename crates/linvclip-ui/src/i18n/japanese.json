@@ -162,9 +162,7 @@
     "copy_hint": "GIFをコピー",
     "retry": "再試行",
     "api_key_missing": "GIF検索は利用できません：このビルドにはKLIPY APIキーが含まれていません。",
-    "categories_failed": "GIFカテゴリを読み込めませんでした。",
-    "api_key_required": "KLIPY APIキーが必要です",
-    "api_key_hint": "設定 → 詳細設定 → GIFに無料のKLIPY APIキーを追加してください。"
+    "categories_failed": "GIFカテゴリを読み込めませんでした。"
   },
   "context": {
     "copy": "コピー",

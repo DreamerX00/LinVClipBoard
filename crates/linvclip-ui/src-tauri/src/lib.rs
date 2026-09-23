@@ -57,6 +57,10 @@ pub struct UpdateInfo {
     pub release_url: String,
     pub release_notes: String,
     pub download_url: String,
+    /// URL of the release's SHA256SUMS asset; `download_update` verifies the
+    /// downloaded package against it. Empty when the release has none.
+    #[serde(default)]
+    pub checksum_url: String,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -620,12 +624,43 @@ fn is_launch_at_startup_enabled_impl() -> Result<bool, String> {
     Ok(false)
 }
 
+/// Timeout for the GitHub release lookup. A stalled connection would
+/// otherwise leave the "Checking…" state up forever.
+const UPDATE_CHECK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// HTTP client for update downloads: bounded connect and per-read timeouts
+/// instead of a total timeout, so a slow but live download is never cut off.
+fn update_download_client() -> Result<reqwest::Client, String> {
+    reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(15))
+        .read_timeout(std::time::Duration::from_secs(30))
+        .user_agent("LinVClipBoard")
+        .build()
+        .map_err(|e| format!("HTTP client error: {}", e))
+}
+
+/// Parse "X.Y.Z[-pre]" into a comparable form. Pre-release versions sort
+/// below the corresponding release (`3.3.0-beta.1 < 3.3.0`), matching
+/// semver — the plain `Vec<u32>` compare treated them as equal.
+fn parse_version(s: &str) -> (Vec<u32>, bool) {
+    let (core, pre) = match s.split_once('-') {
+        Some((c, _)) => (c, true),
+        None => (s, false),
+    };
+    let parts = core.split('.').filter_map(|p| p.parse().ok()).collect();
+    (parts, !pre)
+}
+
 /// Check GitHub releases for a newer version.
+///
+/// This is the update source on Linux and the fallback on Windows when the
+/// signed manifest (`check_for_updates_via_plugin`) cannot be fetched.
 #[tauri::command]
 async fn check_for_updates() -> Result<UpdateInfo, String> {
     let current = env!("CARGO_PKG_VERSION");
 
     let client = reqwest::Client::builder()
+        .timeout(UPDATE_CHECK_TIMEOUT)
         .user_agent("LinVClipBoard")
         .build()
         .map_err(|e| format!("HTTP client error: {}", e))?;
@@ -653,27 +688,40 @@ async fn check_for_updates() -> Result<UpdateInfo, String> {
 
     let release_notes = body["body"].as_str().unwrap_or("").to_string();
 
-    // Find the right asset download URL for this platform
-    let asset_suffix = if cfg!(unix) { ".deb" } else { ".exe" };
-    let download_url = body["assets"]
-        .as_array()
-        .and_then(|assets| {
-            assets.iter().find_map(|a| {
-                let name = a["name"].as_str().unwrap_or("");
-                if name.ends_with(asset_suffix) {
-                    a["browser_download_url"].as_str().map(|s| s.to_string())
-                } else {
-                    None
-                }
+    let asset_url = |pred: &dyn Fn(&str) -> bool| -> String {
+        body["assets"]
+            .as_array()
+            .and_then(|assets| {
+                assets.iter().find_map(|a| {
+                    let name = a["name"].as_str().unwrap_or("");
+                    if pred(name) {
+                        a["browser_download_url"].as_str().map(|s| s.to_string())
+                    } else {
+                        None
+                    }
+                })
             })
-        })
-        .unwrap_or_default();
+            .unwrap_or_default()
+    };
 
-    // Simple semver comparison: split by '.' and compare numerically
-    let parse_ver = |s: &str| -> Vec<u32> { s.split('.').filter_map(|p| p.parse().ok()).collect() };
-    let cur_parts = parse_ver(current);
-    let lat_parts = parse_ver(latest);
-    let has_update = lat_parts > cur_parts;
+    // The package this build can install: the .deb on Linux (only where dpkg
+    // exists — tarball/RPM/Arch users get "Visit GitHub" instead of a failed
+    // install), the NSIS installer on Windows.
+    let download_url = if cfg!(unix) {
+        let has_dpkg = ["/usr/bin/dpkg", "/bin/dpkg"]
+            .iter()
+            .any(|p| std::path::Path::new(p).exists());
+        if has_dpkg {
+            asset_url(&|n| n.ends_with(".deb"))
+        } else {
+            String::new()
+        }
+    } else {
+        asset_url(&|n| n.ends_with("-setup.exe"))
+    };
+    let checksum_url = asset_url(&|n| n == "SHA256SUMS");
+
+    let has_update = parse_version(latest) > parse_version(current);
 
     Ok(UpdateInfo {
         has_update,
@@ -682,15 +730,47 @@ async fn check_for_updates() -> Result<UpdateInfo, String> {
         release_url: html_url.to_string(),
         release_notes,
         download_url,
+        checksum_url,
     })
 }
 
-/// Download a .deb update from GitHub releases, emitting progress events.
-/// The file is saved to ~/Downloads/linvclipboard_<version>.deb.
+/// Fetch a release's SHA256SUMS and return the expected digest for `asset`.
+async fn fetch_expected_sha256(
+    client: &reqwest::Client,
+    checksum_url: &str,
+    asset: &str,
+) -> Result<String, String> {
+    let text = client
+        .get(checksum_url)
+        .send()
+        .await
+        .map_err(|e| format!("Checksum download failed: {}", e))?
+        .error_for_status()
+        .map_err(|e| format!("Checksum download failed: {}", e))?
+        .text()
+        .await
+        .map_err(|e| format!("Checksum download failed: {}", e))?;
+    // sha256sum format: "<hex>  <name>" (also accepts "*<name>" binary mode)
+    text.lines()
+        .filter_map(|line| {
+            let mut it = line.split_whitespace();
+            let hash = it.next()?;
+            let name = it.next()?.trim_start_matches('*');
+            (name == asset && hash.len() == 64).then(|| hash.to_ascii_lowercase())
+        })
+        .next()
+        .ok_or_else(|| format!("SHA256SUMS has no entry for {}", asset))
+}
+
+/// Download an update package (.deb on Linux, NSIS .exe on Windows) from
+/// GitHub releases, emitting `download-progress` events, and verify it
+/// against the release's SHA256SUMS before handing it to the installer.
+/// The file is saved to ~/Downloads/linvclipboard_<version>_x86_64.<ext>.
 #[tauri::command]
 async fn download_update(
     url: String,
     version: String,
+    checksum_url: Option<String>,
     app: tauri::AppHandle,
 ) -> Result<String, String> {
     let download_dir = dirs::download_dir()
@@ -702,11 +782,17 @@ async fn download_update(
     let ext = if cfg!(unix) { "deb" } else { "exe" };
     let filename = format!("linvclipboard_{}_x86_64.{}", version, ext);
     let dest = download_dir.join(&filename);
+    // SHA256SUMS lists the asset under its release name, not our local one.
+    let asset_name = url.rsplit('/').next().unwrap_or_default().to_string();
 
-    let client = reqwest::Client::builder()
-        .user_agent("LinVClipBoard")
-        .build()
-        .map_err(|e| format!("HTTP client error: {}", e))?;
+    let client = update_download_client()?;
+
+    // Fetch the expected digest first so a missing entry fails before the
+    // (much larger) package download starts.
+    let expected = match checksum_url.as_deref().filter(|u| !u.is_empty()) {
+        Some(cu) => Some(fetch_expected_sha256(&client, cu, &asset_name).await?),
+        None => None,
+    };
 
     let resp = client
         .get(&url)
@@ -724,7 +810,9 @@ async fn download_update(
     let mut file =
         std::fs::File::create(&dest).map_err(|e| format!("Cannot create file: {}", e))?;
 
+    use sha2::Digest;
     use std::io::Write;
+    let mut hasher = sha2::Sha256::new();
     let mut stream = resp.bytes_stream();
     use tokio_stream::StreamExt;
 
@@ -732,6 +820,7 @@ async fn download_update(
         let chunk = chunk.map_err(|e| format!("Download stream error: {}", e))?;
         file.write_all(&chunk)
             .map_err(|e| format!("Write error: {}", e))?;
+        hasher.update(&chunk);
         downloaded += chunk.len() as u64;
 
         let percent = if total > 0 {
@@ -748,6 +837,19 @@ async fn download_update(
                 percent,
             },
         );
+    }
+    file.flush().map_err(|e| format!("Write error: {}", e))?;
+    drop(file);
+
+    if let Some(expected) = expected {
+        let actual = format!("{:x}", hasher.finalize());
+        if actual != expected {
+            let _ = std::fs::remove_file(&dest);
+            return Err(format!(
+                "Checksum mismatch for {} — the download was discarded. Please try again.",
+                asset_name
+            ));
+        }
     }
 
     Ok(dest.to_string_lossy().to_string())
@@ -955,9 +1057,28 @@ exit 0
     }
 }
 
+/// Windows fallback when the signed updater path is unavailable: run the
+/// (checksum-verified) NSIS installer downloaded by `download_update` and
+/// exit so it can replace our files. Passive mode shows only a progress bar;
+/// `/R` relaunches the app afterwards, `/UPDATE` tells the installer hooks to
+/// keep autostart and user data.
 #[cfg(windows)]
-async fn install_update_impl(_path: &str) -> Result<String, String> {
-    Err("Not used on Windows — the app updates itself via the built-in updater. If this persists, download the latest installer from GitHub releases.".to_string())
+async fn install_update_impl(path: &str) -> Result<String, String> {
+    let p = std::path::Path::new(path);
+    if !p.exists() {
+        return Err("File not found".to_string());
+    }
+    if !path.to_ascii_lowercase().ends_with(".exe") {
+        return Err("Not an installer .exe".to_string());
+    }
+    std::process::Command::new(p)
+        .args(["/P", "/UPDATE", "/R"])
+        .spawn()
+        .map_err(|e| format!("Could not start the installer: {}", e))?;
+    // Give the installer a moment to start before our process (which it
+    // needs to replace) goes away.
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    std::process::exit(0);
 }
 
 /// Check for updates using the Tauri updater plugin (Windows only).
@@ -979,16 +1100,28 @@ async fn check_for_updates_via_plugin(app: tauri::AppHandle) -> Result<UpdateInf
         has_update: false,
         current_version: current.clone(),
         latest_version: current,
-        release_url: String::new(),
+        release_url: "https://github.com/DreamerX00/LinVClipBoard/releases/latest".to_string(),
         release_notes: String::new(),
         download_url: String::new(),
+        checksum_url: String::new(),
     };
     if let Some(up) = update {
         info.has_update = true;
         info.latest_version = up.version;
-        info.release_url =
-            "https://github.com/DreamerX00/LinVClipBoard/releases/latest".to_string();
         info.release_notes = up.body.unwrap_or_default();
+        // Best effort: the GitHub release gives the modal a real release page
+        // and the installer + SHA256SUMS URLs it needs for the fallback path
+        // (`download_update` → `install_update`) if the plugin install fails.
+        if let Ok(gh) = check_for_updates().await {
+            if gh.latest_version == info.latest_version {
+                info.release_url = gh.release_url;
+                info.download_url = gh.download_url;
+                info.checksum_url = gh.checksum_url;
+                if info.release_notes.trim().is_empty() {
+                    info.release_notes = gh.release_notes;
+                }
+            }
+        }
     }
     Ok(info)
 }
@@ -1002,12 +1135,17 @@ async fn install_update_via_plugin(app: tauri::AppHandle) -> Result<String, Stri
         return Err("Updater plugin install is Windows-only".to_string());
     }
 
-    let updater = app.updater().map_err(|e| e.to_string())?;
+    // Errors are prefixed so UpdateModal can tell "signed updater unavailable"
+    // (→ fall back to the checksum-verified installer download) from a failure
+    // mid-install.
+    let updater = app
+        .updater()
+        .map_err(|e| format!("updater_unavailable: {}", e))?;
     let update = updater
         .check()
         .await
-        .map_err(|e| e.to_string())?
-        .ok_or("No update available".to_string())?;
+        .map_err(|e| format!("updater_unavailable: {}", e))?
+        .ok_or("updater_unavailable: no update in the signed manifest".to_string())?;
 
     // Reuse the existing download-progress event so UpdateModal shows a live bar.
     let progress_app = app.clone();

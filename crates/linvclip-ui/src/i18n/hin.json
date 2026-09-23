@@ -162,9 +162,7 @@
     "copy_hint": "GIF कॉपी करने के लिए क्लिक करें",
     "retry": "पुनः प्रयास करें",
     "api_key_missing": "GIF खोज उपलब्ध नहीं है: यह बिल्ड KLIPY API कुंजी के बिना बनाया गया था।",
-    "categories_failed": "GIF श्रेणियाँ लोड नहीं हो सकीं।",
-    "api_key_required": "KLIPY API कुंजी आवश्यक",
-    "api_key_hint": "सेटिंग्स → उन्नत → GIF में अपनी मुफ्त KLIPY API कुंजी जोड़ें।"
+    "categories_failed": "GIF श्रेणियाँ लोड नहीं हो सकीं।"
   },
   "context": {
     "copy": "कॉपी",

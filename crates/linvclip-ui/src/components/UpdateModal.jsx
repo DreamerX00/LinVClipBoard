@@ -9,6 +9,12 @@ import { useTranslation } from "../i18n/index.jsx";
  *
  * Flow: idle → downloading → ready_to_install → installing → installed / error
  *
+ * Windows first tries the signed updater plugin (download + verify + passive
+ * install + relaunch in one step, so it never reaches ready_to_install). If
+ * the signed manifest is unavailable it falls back to the same path Linux
+ * uses: download the release package, verify it against SHA256SUMS, then
+ * hand it to the installer from ready_to_install.
+ *
  * Props:
  *   updateInfo  – the UpdateInfo object from check_for_updates
  *   onClose     – callback to dismiss the modal
@@ -33,6 +39,25 @@ function UpdateModal({ updateInfo, onClose }) {
     }, []);
 
     const isWindows = navigator.userAgent.includes("Windows");
+    const canDownloadPackage = Boolean(updateInfo.download_url);
+
+    const downloadPackage = useCallback(async () => {
+        setStage("downloading");
+        setProgress({ downloaded: 0, total: 0, percent: 0 });
+        setErrorMsg("");
+        try {
+            const path = await invoke("download_update", {
+                url: updateInfo.download_url,
+                version: updateInfo.latest_version,
+                checksumUrl: updateInfo.checksum_url || null,
+            });
+            setSavedPath(path);
+            setStage("ready_to_install");
+        } catch (err) {
+            setErrorMsg(String(err));
+            setStage("error");
+        }
+    }, [updateInfo]);
 
     const handleDownload = useCallback(async () => {
         if (isWindows) {
@@ -46,25 +71,19 @@ function UpdateModal({ updateInfo, onClose }) {
                 await invoke("install_update_via_plugin");
                 setStage("installed");
             } catch (err) {
-                setErrorMsg(String(err));
+                const msg = String(err);
+                // No signed manifest for this build → plain installer download.
+                if (msg.startsWith("updater_unavailable") && canDownloadPackage) {
+                    await downloadPackage();
+                    return;
+                }
+                setErrorMsg(msg);
                 setStage("error");
             }
             return;
         }
-        setStage("downloading");
-        setProgress({ downloaded: 0, total: 0, percent: 0 });
-        try {
-            const path = await invoke("download_update", {
-                url: updateInfo.download_url,
-                version: updateInfo.latest_version,
-            });
-            setSavedPath(path);
-            setStage("ready_to_install");
-        } catch (err) {
-            setErrorMsg(String(err));
-            setStage("error");
-        }
-    }, [updateInfo, isWindows]);
+        await downloadPackage();
+    }, [isWindows, canDownloadPackage, downloadPackage]);
 
     const handleInstall = useCallback(async () => {
         setStage("installing");
@@ -157,7 +176,7 @@ function UpdateModal({ updateInfo, onClose }) {
                             </div>
                             <div className="update-install-body">
                                 <p className="update-install-file">
-                                    {savedPath.split("/").pop()}
+                                    {savedPath.split(/[\\/]/).pop()}
                                     <span className="update-install-size">
                                         {progress.total > 0 ? ` (${fmtBytes(progress.total)})` : ""}
                                     </span>

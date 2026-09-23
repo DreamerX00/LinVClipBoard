@@ -128,6 +128,13 @@ jobs:
           cache: npm
           cache-dependency-path: crates/linvclip-ui/package-lock.json
       - uses: ./.github/actions/linux-deps
+      - name: Require release secrets (tag builds)
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          KLIPY_API_KEY: ${{ secrets.KLIPY_API_KEY }}
+        run: |
+          # A tag build publishes what it produces; never ship GIF search disabled.
+          [ -n "$KLIPY_API_KEY" ] || { echo "::error::KLIPY_API_KEY secret is not set — refusing to release a build without GIF search"; exit 1; }
       - name: Build UI
         working-directory: crates/linvclip-ui
         # Also checks that the npm @tauri-apps/* versions match the Rust tauri
@@ -163,9 +170,23 @@ jobs:
         run: |
           Copy-Item "target/release/clipd.exe" "crates/linvclip-ui/src-tauri/resources/" -Force
           Copy-Item "target/release/clipctl.exe" "crates/linvclip-ui/src-tauri/resources/" -Force
+      - name: Require release secrets (tag builds)
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          KLIPY_API_KEY: ${{ secrets.KLIPY_API_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          # The .exe built here is what the release job ships and what the
+          # in-app updater installs: it needs GIF search and a signature.
+          if (-not $env:KLIPY_API_KEY) { Write-Output "::error::KLIPY_API_KEY secret is not set"; exit 1 }
+          if (-not $env:TAURI_SIGNING_PRIVATE_KEY) { Write-Output "::error::TAURI_SIGNING_PRIVATE_KEY secret is not set — the updater cannot verify an unsigned installer"; exit 1 }
       - name: Build Tauri Windows app
         shell: pwsh
         env:
+          # KLIPY_API_KEY is embedded by build.rs; this job builds the .exe that
+          # ships, so it needs the key just like build-ui and release.
+          KLIPY_API_KEY: ${{ secrets.KLIPY_API_KEY }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
         working-directory: crates/linvclip-ui
@@ -256,6 +277,11 @@ jobs:
           cache: npm
           cache-dependency-path: crates/linvclip-ui/package-lock.json
       - uses: ./.github/actions/linux-deps
+      - name: Require release secrets
+        env:
+          KLIPY_API_KEY: ${{ secrets.KLIPY_API_KEY }}
+        run: |
+          [ -n "$KLIPY_API_KEY" ] || { echo "::error::KLIPY_API_KEY secret is not set — refusing to release a build without GIF search"; exit 1; }
       - name: Build all
         env:
           KLIPY_API_KEY: ${{ secrets.KLIPY_API_KEY }}
@@ -269,43 +295,6 @@ jobs:
         with:
           name: windows-installer
           path: windows-installer
-      - name: Generate update manifest
-        run: |
-          # ponytail: derive name/version from the actual artifact, not the tag — a tag
-          # pushed without a version bump would otherwise publish a 404 download URL
-          EXE_FILE=$(ls windows-installer/*-setup.exe 2>/dev/null | head -1 || true)
-          SIG_FILE=$(ls windows-installer/*.sig 2>/dev/null | head -1 || true)
-          if [ -z "$EXE_FILE" ] || [ -z "$SIG_FILE" ]; then
-            echo "No signed Windows installer found — skipping update manifest"
-            exit 0
-          fi
-          EXE_NAME=$(basename "$EXE_FILE")
-          VERSION=$(echo "$EXE_NAME" | sed -E 's/^LinVClipBoard_(.+)_x64-setup\.exe$/\1/')
-          TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          SIGNATURE=$(cat "$SIG_FILE")
-          cat > update-windows-x86_64.json <<EOF
-          {
-            "version": "${VERSION}",
-            "notes": "Release v${VERSION} of LinVClipBoard",
-            "pub_date": "${TIMESTAMP}",
-            "platforms": {
-              "windows-x86_64": {
-                "signature": "${SIGNATURE}",
-                "url": "https://github.com/DreamerX00/LinVClipBoard/releases/download/${GITHUB_REF_NAME}/${EXE_NAME}"
-              }
-            }
-          }
-          EOF
-      - name: Collect assets and write SHA256SUMS
-        # install.sh downloads SHA256SUMS next to the .deb and refuses to
-        # install without it, so the checksum file is not optional.
-        run: |
-          mkdir -p release-assets
-          cp target/debian/*.deb target/tarball/*.tar.gz release-assets/
-          cp windows-installer/*.exe release-assets/
-          cp windows-installer/*.sig release-assets/ 2>/dev/null || true
-          if [ -f update-windows-x86_64.json ]; then cp update-windows-x86_64.json release-assets/; fi
-          cd release-assets && sha256sum -- * > SHA256SUMS && cat SHA256SUMS
       - name: Release notes
         # Body = the CHANGELOG.md section for this version (scripts/release.sh
         # writes it), else the annotated tag message, else a one-liner. GitHub's
@@ -318,6 +307,48 @@ jobs:
             echo "Release $GITHUB_REF_NAME of LinVClipBoard." > release-notes.md
           fi
           cat release-notes.md
+      - name: Generate update manifest
+        # The in-app updater (tauri-plugin-updater) fetches this file from
+        # releases/latest/download/ — see plugins.updater.endpoints in
+        # tauri.conf.json. A release without it (or without the .sig) would
+        # leave every Windows user unable to update, so this step fails hard.
+        run: |
+          # ponytail: derive name/version from the actual artifact, not the tag — a tag
+          # pushed without a version bump would otherwise publish a 404 download URL
+          EXE_FILE=$(ls windows-installer/*-setup.exe 2>/dev/null | head -1 || true)
+          SIG_FILE=$(ls windows-installer/*-setup.exe.sig 2>/dev/null | head -1 || true)
+          if [ -z "$EXE_FILE" ] || [ -z "$SIG_FILE" ]; then
+            echo "::error::No signed Windows installer in the windows-installer artifact (exe='$EXE_FILE' sig='$SIG_FILE')"
+            exit 1
+          fi
+          EXE_NAME=$(basename "$EXE_FILE")
+          VERSION=$(echo "$EXE_NAME" | sed -E 's/^LinVClipBoard_(.+)_x64-setup\.exe$/\1/')
+          if [ "v$VERSION" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Installer version $VERSION does not match tag $GITHUB_REF_NAME — bump the version before tagging"
+            exit 1
+          fi
+          # jq does the quoting: the notes are multi-line Markdown and the
+          # signature is base64 that must land in the JSON byte-for-byte.
+          jq -n \
+            --arg version "$VERSION" \
+            --rawfile notes release-notes.md \
+            --arg pub_date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --rawfile signature "$SIG_FILE" \
+            --arg url "https://github.com/DreamerX00/LinVClipBoard/releases/download/${GITHUB_REF_NAME}/${EXE_NAME}" \
+            '{version: $version, notes: $notes, pub_date: $pub_date,
+              platforms: {"windows-x86_64": {signature: ($signature | rtrimstr("\n")), url: $url}}}' \
+            > update-windows-x86_64.json
+          cat update-windows-x86_64.json
+      - name: Collect assets and write SHA256SUMS
+        # install.sh downloads SHA256SUMS next to the .deb and refuses to
+        # install without it; the in-app updater verifies the .deb/.exe it
+        # downloads against it too. So the checksum file is not optional.
+        run: |
+          mkdir -p release-assets
+          cp target/debian/*.deb target/tarball/*.tar.gz release-assets/
+          cp windows-installer/*.exe windows-installer/*.sig release-assets/
+          cp update-windows-x86_64.json release-assets/
+          cd release-assets && sha256sum -- * > SHA256SUMS && cat SHA256SUMS
       - name: Create GitHub Release
         # A "-" in the tag (v3.2.0-beta.1) marks a pre-release. If
         # scripts/release.sh already created the release (local build mode),

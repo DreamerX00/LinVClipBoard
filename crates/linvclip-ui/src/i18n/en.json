@@ -163,9 +163,7 @@
     "copy_hint": "Click to copy GIF",
     "retry": "Retry",
     "api_key_missing": "GIF search is unavailable: this build was made without a KLIPY API key.",
-    "categories_failed": "Couldn't load GIF categories.",
-    "api_key_required": "KLIPY API Key Required",
-    "api_key_hint": "Add your free KLIPY API key in Settings → Advanced → GIF to enable GIF search."
+    "categories_failed": "Couldn't load GIF categories."
   },
   "context": {
     "copy": "Copy",
