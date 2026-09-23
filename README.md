@@ -117,10 +117,21 @@ cd linvclipboard-3.3.1-linux-x86_64
 
 ### Windows
 
-No Windows installer is published yet — the `winget`/`scoop`/`chocolatey`
-manifests in `windows/publish/` are filled in by the CI release job once a
-signed Windows build exists. Track progress in
-[Releases](https://github.com/DreamerX00/LinVClipBoard/releases).
+Download `LinVClipBoard_3.3.1_x64-setup.exe` (and `SHA256SUMS` to verify it)
+from [Releases](https://github.com/DreamerX00/LinVClipBoard/releases/latest)
+and run it. It installs for the current user (no admin rights needed), bundles
+the `clipd` daemon and offers to start it at login.
+
+```powershell
+# Optional: verify the download before running it
+(Get-FileHash .\LinVClipBoard_3.3.1_x64-setup.exe -Algorithm SHA256).Hash.ToLower()
+Select-String LinVClipBoard_3.3.1_x64-setup.exe .\SHA256SUMS
+```
+
+Later versions install themselves: **Settings → Check for Updates** downloads
+the signed installer, verifies it and relaunches the app on the new version.
+The `winget`/`scoop`/`chocolatey` manifests in `windows/publish/` are not
+submitted to those repositories yet.
 
 ### Build from source
 
