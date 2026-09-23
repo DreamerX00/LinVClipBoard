@@ -54,7 +54,6 @@ function PreviewPane({ item, onPaste, onToast, onItemUpdate }) {
     // Stats
     const lineCount = text ? text.split("\n").length : 0;
     const wordCount = text.trim() ? text.trim().split(/\s+/).length : 0;
-    const charCount = text.length;
 
     // Fetch syntax highlighting for code / JSON
     useEffect(() => {

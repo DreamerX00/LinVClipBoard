@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useMemo } from "react";
 import { useTranslation } from "../i18n/index.jsx";
 
 function SnippetVarDialog({ snippet, onSubmit, onCancel }) {

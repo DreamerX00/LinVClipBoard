@@ -1166,6 +1166,32 @@ kbd {
     font-size: 0.82rem;
 }
 
+.gif-error-text {
+    margin: 0 0 8px;
+}
+
+.gif-error-detail {
+    margin: 0 0 8px;
+    color: var(--muted);
+    font-size: 0.72rem;
+    word-break: break-word;
+}
+
+.gif-retry-btn {
+    background: none;
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    font-size: 0.8rem;
+    cursor: pointer;
+    padding: 4px 12px;
+    border-radius: 4px;
+    transition: background 0.15s;
+}
+
+.gif-retry-btn:hover {
+    background: var(--hover);
+}
+
 .gif-powered-by {
     text-align: center;
     font-size: 0.7rem;

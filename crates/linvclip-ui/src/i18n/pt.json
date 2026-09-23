@@ -160,6 +160,9 @@
     "copied": "GIF copiado para a área de transferência!",
     "copied_url": "URL do GIF copiada!",
     "copy_hint": "Clique para copiar GIF",
+    "retry": "Tentar novamente",
+    "api_key_missing": "A pesquisa de GIFs está indisponível: esta versão foi compilada sem uma chave de API do KLIPY.",
+    "categories_failed": "Não foi possível carregar as categorias de GIF.",
     "api_key_required": "Chave API do KLIPY Necessária",
     "api_key_hint": "Adicione sua chave API gratuita do KLIPY em Configurações → Avançado → GIF."
   },

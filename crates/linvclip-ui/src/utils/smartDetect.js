@@ -36,7 +36,7 @@ const PATTERNS = [
         type: "json",
         label: "JSON",
         icon: "{ }",
-        regex: /^[\s]*[{\[]/,
+        regex: /^[\s]*[{[]/,
         validate: (text) => {
             try { JSON.parse(text); return true; } catch { return false; }
         },

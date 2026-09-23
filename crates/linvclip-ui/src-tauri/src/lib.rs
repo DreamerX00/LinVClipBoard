@@ -1041,10 +1041,28 @@ async fn install_update_via_plugin(app: tauri::AppHandle) -> Result<String, Stri
     Ok("installed".to_string())
 }
 
+/// Error code returned by every GIF command when the build has no KLIPY key.
+/// The frontend maps this exact string to a localized message — keep in sync
+/// with `GifPicker.jsx`.
+const GIF_API_KEY_MISSING: &str = "gif_api_key_missing";
+
+/// Timeout for every KLIPY request. Without one a stalled connection keeps the
+/// GIF tab's spinner up indefinitely.
+const KLIPY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Build the HTTP client used for KLIPY requests (10 s overall timeout).
+fn klipy_client() -> Result<reqwest::Client, String> {
+    reqwest::Client::builder()
+        .timeout(KLIPY_TIMEOUT)
+        .user_agent("LinVClipBoard")
+        .build()
+        .map_err(|e| format!("HTTP client error: {}", e))
+}
+
 /// Decode the embedded KLIPY app key (XOR-descrambled at runtime).
 fn get_gif_api_key() -> Result<String, String> {
     if KLIPY_KEY_BYTES.is_empty() {
-        return Err("gif_api_key_missing".to_string());
+        return Err(GIF_API_KEY_MISSING.to_string());
     }
     let decoded: String = KLIPY_KEY_BYTES
         .iter()
@@ -1102,7 +1120,7 @@ fn parse_gif_item(r: &serde_json::Value) -> Option<GifItem> {
 async fn fetch_gifs(query: String, page: u32, per_page: u32) -> Result<GifResult, String> {
     let app_key = get_gif_api_key()?;
 
-    let client = reqwest::Client::new();
+    let client = klipy_client()?;
     let (url, is_search) = if query.trim().is_empty() {
         (
             format!("https://api.klipy.com/api/v1/{}/gifs/trending", app_key),
@@ -1165,7 +1183,7 @@ async fn fetch_gifs(query: String, page: u32, per_page: u32) -> Result<GifResult
 async fn fetch_gif_categories() -> Result<Vec<GifCategory>, String> {
     let app_key = get_gif_api_key()?;
 
-    let client = reqwest::Client::new();
+    let client = klipy_client()?;
     let url = format!("https://api.klipy.com/api/v1/{}/gifs/categories", app_key);
 
     let resp = client
@@ -1213,7 +1231,7 @@ async fn fetch_gif_categories() -> Result<Vec<GifCategory>, String> {
 async fn register_gif_share(slug: String, query: String) -> Result<String, String> {
     let app_key = get_gif_api_key()?;
 
-    let client = reqwest::Client::new();
+    let client = klipy_client()?;
     let url = format!(
         "https://api.klipy.com/api/v1/{}/gifs/share/{}",
         app_key, slug

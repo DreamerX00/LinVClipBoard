@@ -36,12 +36,51 @@ action `.github/actions/linux-deps` — if you add one, update both places.
    `src-tauri/resources/*.exe` and `src-tauri/gen/schemas/` are gitignored.
    Release artifacts are produced by the CI `release` job when a `v*` tag is
    pushed (see "Cutting a release" below).
-6. **Run the gates before pushing:** `make ci` — builds the frontend, then
-   runs the same `cargo fmt`, `cargo clippy --all-targets -D warnings` and
-   `cargo test` invocations as the Lint/Test jobs in
-   `.github/workflows/ci.yml`. Windows-only code is compiled and tested by the
+6. **Run the gates before pushing:** `make ci` — builds the frontend, runs
+   `npm run lint && npm test` in `crates/linvclip-ui`, then the same
+   `cargo fmt`, `cargo clippy --all-targets -D warnings` and `cargo test`
+   invocations as the Lint/Test jobs in `.github/workflows/ci.yml`. Windows-only code is compiled and tested by the
    `windows-2025` jobs on the PR.
 7. Update `CHANGELOG.md` for user-visible changes.
+
+## GIF search: the KLIPY API key
+
+GIF search talks to [KLIPY](https://klipy.com). The app key is embedded at
+compile time by `crates/linvclip-ui/src-tauri/build.rs`, which looks for it in
+this order:
+
+1. the `KLIPY_API_KEY` environment variable — **this is what CI uses**;
+2. `crates/linvclip-ui/src-tauri/klipy.key` (gitignored) — local-dev fallback.
+
+If neither is set the build still succeeds, but `cargo` prints a
+`KLIPY API key not found` warning and every GIF command returns
+`gif_api_key_missing`; the GIF tab then shows a localized "GIF search is
+unavailable" message instead of results. A release artifact built that way
+ships without GIF search, so:
+
+- **CI / releases:** set the repository secret `KLIPY_API_KEY` (Settings →
+  Secrets and variables → Actions). `.github/workflows/ci.yml` passes it to
+  the `build-ui`, `build-windows` and `release` jobs as an environment
+  variable; `cargo:rerun-if-env-changed=KLIPY_API_KEY` makes cargo rebuild
+  the UI crate when it changes.
+- **Local builds:** `export KLIPY_API_KEY=…` before `make`/`npx tauri build`,
+  or drop the key into `crates/linvclip-ui/src-tauri/klipy.key`.
+- **Never commit a key.** `klipy.key` is gitignored; do not add the key to
+  `tauri.conf.json`, the Makefile, workflow files, or tests. `build.rs` only
+  ever prints *where* the key came from, never the value.
+
+## Frontend lint and tests
+
+`crates/linvclip-ui` has ESLint and Vitest gates alongside the Rust ones:
+
+```bash
+cd crates/linvclip-ui
+npm run lint   # eslint . (flat config in eslint.config.js)
+npm test       # vitest run — *.test.{js,jsx} under src/, jsdom environment
+```
+
+Tauri's `invoke` is mocked in `src/test/setup.js`; component tests stub it per
+test. The Lint job in CI runs both after `npm ci`.
 
 ## Cutting a release
 

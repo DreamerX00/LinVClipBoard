@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { open } from "@tauri-apps/plugin-shell";
 import { useTranslation } from "../i18n/index.jsx";
 import { useKeybindings, KEYBINDING_ACTIONS } from "../contexts/KeybindingContext.jsx";
 import UpdateModal from "./UpdateModal.jsx";
@@ -257,14 +256,6 @@ function SettingsPanel({ onClose, zoom, onZoomChange }) {
             setUpdateStatus({ error: String(err) });
             setShowUpdatePopup("error");
             setTimeout(() => setShowUpdatePopup(null), 5000);
-        }
-    }, []);
-
-    const handleOpenRelease = useCallback(async (url) => {
-        try {
-            await open(url);
-        } catch (_) {
-            window.open(url, "_blank");
         }
     }, []);
 

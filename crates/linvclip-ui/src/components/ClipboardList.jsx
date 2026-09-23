@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, useCallback, useMemo } from "react";
+import { useRef, useEffect, useState, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "../i18n/index.jsx";
 import { detectSmartContent, hasSensitiveContent, redactText } from "../utils/smartDetect.js";

@@ -38,12 +38,12 @@ function App() {
     const [isRegex, setIsRegex] = useState(false);
     const [loading, setLoading] = useState(false);
     const loadingRef = useRef(false);
-    const [status, setStatus] = useState(null);
+    const [, setStatus] = useState(null);
     const [selectedIndex, setSelectedIndex] = useState(0);
     const [toast, setToast] = useState(null);
     const [showSettings, setShowSettings] = useState(false);
     const [showConfirm, setShowConfirm] = useState(false);
-    const [theme, setTheme] = useState(() => {
+    const [theme] = useState(() => {
         const stored = localStorage.getItem("theme");
         if (stored) return stored;
         return window.matchMedia?.("(prefers-color-scheme: dark)")?.matches ? "dark" : "light";

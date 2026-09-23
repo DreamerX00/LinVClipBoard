@@ -3,6 +3,23 @@ import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "../i18n/index.jsx";
 
 const PER_PAGE = 24;
+const DEBOUNCE_MS = 300;
+
+/**
+ * Error codes returned by the Rust GIF commands that have a friendly,
+ * localized message. Anything else is shown verbatim.
+ * Keep in sync with `GIF_API_KEY_MISSING` in src-tauri/src/lib.rs.
+ */
+const GIF_ERROR_KEYS = {
+    gif_api_key_missing: "gif.api_key_missing",
+};
+
+/** Map a backend error (string or Error) to a user-facing message. */
+function describeGifError(err, t) {
+    const code = err instanceof Error ? err.message : String(err);
+    const key = GIF_ERROR_KEYS[code];
+    return { message: key ? t(key) : code, retryable: !key };
+}
 
 /* Tiny component that shows a shimmer skeleton until its image loads. */
 function GifImage({ src, alt }) {
@@ -21,82 +38,138 @@ function GifImage({ src, alt }) {
     );
 }
 
+/** Error banner with an optional Retry button. Never renders a spinner. */
+function GifError({ error, title, onRetry, t }) {
+    return (
+        <div className="gif-error" role="alert">
+            <p className="gif-error-text">⚠️ {title || error.message}</p>
+            {title && <p className="gif-error-detail">{error.message}</p>}
+            {error.retryable && onRetry && (
+                <button type="button" className="gif-retry-btn" onClick={onRetry}>
+                    {t("gif.retry")}
+                </button>
+            )}
+        </div>
+    );
+}
+
 function GifPicker({ searchQuery, onToast }) {
     const { t } = useTranslation();
     const [gifs, setGifs] = useState([]);
     const [categories, setCategories] = useState([]);
+    const [categoriesLoading, setCategoriesLoading] = useState(true);
+    const [categoriesError, setCategoriesError] = useState(null);
     const [activeCategory, setActiveCategory] = useState(null);
     const [loading, setLoading] = useState(false);
-    const [page, setPage] = useState(1);
     const [hasNext, setHasNext] = useState(false);
     const [error, setError] = useState(null);
-    const lastQuery = useRef("");
     const scrollRef = useRef(null);
     const sentinelRef = useRef(null);
 
-    const showCategories = !searchQuery && !activeCategory;
-
-    // ── Fetch categories on mount ──
+    // Request bookkeeping lives in refs so it never feeds back into hook deps:
+    //  - pageRef:      last page successfully loaded for the current query
+    //  - inFlightRef:  true while a fetch_gifs call is outstanding
+    //  - requestIdRef: monotonically increasing id; a response whose id is no
+    //                  longer current belongs to a superseded query → ignored
+    const pageRef = useRef(1);
+    const inFlightRef = useRef(false);
+    const requestIdRef = useRef(0);
+    const categoriesRequestRef = useRef(0);
+    const mountedRef = useRef(true);
     useEffect(() => {
-        let cancelled = false;
-        (async () => {
-            try {
-                const cats = await invoke("fetch_gif_categories");
-                if (!cancelled) setCategories(cats);
-            } catch (_) {}
-        })();
-        return () => { cancelled = true; };
+        mountedRef.current = true;
+        return () => { mountedRef.current = false; };
     }, []);
 
-    // ── Fetch GIFs ──
+    const showCategories = !searchQuery && !activeCategory;
+
+    // ── Categories ──
+    const loadCategories = useCallback(async () => {
+        const id = ++categoriesRequestRef.current;
+        setCategoriesLoading(true);
+        setCategoriesError(null);
+        try {
+            const cats = await invoke("fetch_gif_categories");
+            if (!mountedRef.current || id !== categoriesRequestRef.current) return;
+            setCategories(Array.isArray(cats) ? cats : []);
+        } catch (err) {
+            if (!mountedRef.current || id !== categoriesRequestRef.current) return;
+            setCategories([]);
+            setCategoriesError(describeGifError(err, t));
+        } finally {
+            if (mountedRef.current && id === categoriesRequestRef.current) {
+                setCategoriesLoading(false);
+            }
+        }
+    }, [t]);
+
+    useEffect(() => {
+        loadCategories();
+    }, [loadCategories]);
+
+    // ── Results ──
+    /** Drop current results and invalidate any outstanding fetch. */
+    const resetResults = useCallback(() => {
+        requestIdRef.current += 1;
+        inFlightRef.current = false;
+        pageRef.current = 1;
+        setGifs([]);
+        setHasNext(false);
+        setError(null);
+        setLoading(false);
+    }, []);
+
+    /**
+     * Fetch page 1 (`resetPage`) or the next page for the current query.
+     * Deps are only the query inputs, so this identity — and therefore the
+     * debounce effect below — is stable while a request is in flight.
+     */
     const fetchGifs = useCallback(
         async (resetPage = false) => {
-            if (loading) return;
+            // Pagination never overlaps itself; a new query always supersedes.
+            if (!resetPage && inFlightRef.current) return;
+            const id = ++requestIdRef.current;
+            const nextPage = resetPage ? 1 : pageRef.current + 1;
+            const query = searchQuery || activeCategory || "";
+            inFlightRef.current = true;
             setLoading(true);
             setError(null);
             try {
-                const nextPage = resetPage ? 1 : page + 1;
-                const query = searchQuery || activeCategory || "";
                 const result = await invoke("fetch_gifs", {
                     query,
                     page: nextPage,
                     perPage: PER_PAGE,
                 });
-                if (resetPage) {
-                    setGifs(result.items);
-                    setPage(1);
-                } else {
-                    setGifs((prev) => [...prev, ...result.items]);
-                    setPage(nextPage);
-                }
-                setHasNext(result.has_next);
+                if (!mountedRef.current || id !== requestIdRef.current) return; // stale
+                pageRef.current = nextPage;
+                const items = Array.isArray(result?.items) ? result.items : [];
+                setGifs((prev) => (resetPage ? items : [...prev, ...items]));
+                setHasNext(Boolean(result?.has_next));
             } catch (err) {
-                setError(String(err));
+                if (!mountedRef.current || id !== requestIdRef.current) return; // stale
+                setError(describeGifError(err, t));
             } finally {
-                setLoading(false);
+                if (mountedRef.current && id === requestIdRef.current) {
+                    inFlightRef.current = false;
+                    setLoading(false);
+                }
             }
         },
-        [searchQuery, activeCategory, page, loading]
+        [searchQuery, activeCategory, t]
     );
 
-    // Reset on query change
+    // Reset on query change (also drops the active category once typing starts)
     useEffect(() => {
-        if (searchQuery !== lastQuery.current) {
-            lastQuery.current = searchQuery;
-            setGifs([]);
-            setPage(1);
-            setHasNext(false);
-            setError(null);
-            if (searchQuery) setActiveCategory(null);
-        }
-    }, [searchQuery]);
+        resetResults();
+        if (searchQuery) setActiveCategory(null);
+    }, [searchQuery, resetResults]);
 
-    // Trigger fetch with debounce
+    // Single debounced fetch per (query, category) change
     useEffect(() => {
-        if (showCategories) return;
-        const timer = setTimeout(() => fetchGifs(true), 300);
+        if (showCategories) return undefined;
+        const timer = setTimeout(() => fetchGifs(true), DEBOUNCE_MS);
         return () => clearTimeout(timer);
-    }, [searchQuery, activeCategory, fetchGifs]);
+    }, [showCategories, fetchGifs]);
 
     // Infinite scroll — use ref to avoid stale closure
     const fetchGifsRef = useRef(fetchGifs);
@@ -104,7 +177,7 @@ function GifPicker({ searchQuery, onToast }) {
 
     useEffect(() => {
         const sentinel = sentinelRef.current;
-        if (!sentinel) return;
+        if (!sentinel || typeof IntersectionObserver === "undefined") return undefined;
         const observer = new IntersectionObserver(
             (entries) => {
                 if (entries[0].isIntersecting && hasNext && !loading) {
@@ -115,7 +188,7 @@ function GifPicker({ searchQuery, onToast }) {
         );
         observer.observe(sentinel);
         return () => observer.disconnect();
-    }, [hasNext, loading]);
+    }, [hasNext, loading, showCategories]);
 
     const handleCopyGif = useCallback(
         async (gif) => {
@@ -134,42 +207,53 @@ function GifPicker({ searchQuery, onToast }) {
     );
 
     const handleCategoryClick = useCallback((query) => {
+        resetResults();
         setActiveCategory(query);
-        setGifs([]);
-        setPage(1);
-        setHasNext(false);
-        setError(null);
-    }, []);
+    }, [resetResults]);
 
     const handleBack = useCallback(() => {
+        resetResults();
         setActiveCategory(null);
-        setGifs([]);
-        setPage(1);
-        setHasNext(false);
-        setError(null);
-    }, []);
+    }, [resetResults]);
+
+    const handleRetryResults = useCallback(() => fetchGifs(true), [fetchGifs]);
 
     // ── Categories (home) view ──
     if (showCategories) {
+        let body;
+        if (categoriesError) {
+            body = (
+                <GifError
+                    error={categoriesError}
+                    title={categoriesError.retryable ? t("gif.categories_failed") : null}
+                    onRetry={loadCategories}
+                    t={t}
+                />
+            );
+        } else if (categories.length > 0) {
+            body = (
+                <div className="gif-categories-grid">
+                    {categories.map((cat) => (
+                        <button
+                            key={cat.query}
+                            className="gif-category-tile"
+                            onClick={() => handleCategoryClick(cat.query)}
+                            aria-label={cat.category}
+                        >
+                            <GifImage src={cat.preview_url} alt={cat.category} />
+                            <span className="gif-category-label">{cat.category}</span>
+                        </button>
+                    ))}
+                </div>
+            );
+        } else if (categoriesLoading) {
+            body = <div className="gif-loading"><span className="gif-spinner" /></div>;
+        } else {
+            body = <div className="picker-empty"><p>{t("gif.no_results")}</p></div>;
+        }
         return (
             <div className="picker-scroll" ref={scrollRef}>
-                {categories.length > 0 ? (
-                    <div className="gif-categories-grid">
-                        {categories.map((cat) => (
-                            <button
-                                key={cat.query}
-                                className="gif-category-tile"
-                                onClick={() => handleCategoryClick(cat.query)}
-                                aria-label={cat.category}
-                            >
-                                <GifImage src={cat.preview_url} alt={cat.category} />
-                                <span className="gif-category-label">{cat.category}</span>
-                            </button>
-                        ))}
-                    </div>
-                ) : (
-                    <div className="gif-loading"><span className="gif-spinner" /></div>
-                )}
+                {body}
                 <div className="gif-powered-by">Powered by KLIPY</div>
             </div>
         );
@@ -185,7 +269,7 @@ function GifPicker({ searchQuery, onToast }) {
                 </div>
             )}
 
-            {error && <div className="gif-error" role="alert">⚠️ {error}</div>}
+            {error && <GifError error={error} onRetry={handleRetryResults} t={t} />}
 
             <div className="gif-grid">
                 {gifs.map((gif) => (

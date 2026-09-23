@@ -58,7 +58,7 @@ function EmojiPicker({ searchQuery, onToast }) {
     const filteredData = useMemo(() => {
         if (!query) return null; // show all categories normally
         const results = [];
-        for (const [category, emojis] of Object.entries(emojiData)) {
+        for (const emojis of Object.values(emojiData)) {
             for (const item of emojis) {
                 if (item.name.includes(query) || item.emoji.includes(query)) {
                     results.push(item);

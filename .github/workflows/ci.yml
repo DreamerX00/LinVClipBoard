@@ -47,6 +47,9 @@ jobs:
         # fails if the directory is missing, so clippy needs the built assets.
         working-directory: crates/linvclip-ui
         run: npm ci && npm run build
+      - name: Frontend lint and tests
+        working-directory: crates/linvclip-ui
+        run: npm run lint && npm test
       - name: Check formatting
         run: cargo fmt --all -- --check
       - name: Clippy
@@ -129,6 +132,10 @@ jobs:
         working-directory: crates/linvclip-ui
         # Also checks that the npm @tauri-apps/* versions match the Rust tauri
         # crates — the CLI refuses to build on a major/minor mismatch.
+        # KLIPY_API_KEY is embedded by build.rs; without it the artifact ships
+        # with GIF search disabled (see CONTRIBUTING.md).
+        env:
+          KLIPY_API_KEY: ${{ secrets.KLIPY_API_KEY }}
         run: npm ci && npx tauri build -- ${{ env.CARGO_FLAGS }}
 
   build-windows:
@@ -214,6 +221,8 @@ jobs:
       - name: Build Rust binaries (cross)
         run: cargo xwin build --release ${{ env.CARGO_FLAGS }} --target x86_64-pc-windows-msvc -p clipd -p clipctl
       - name: Build Tauri (cross)
+        env:
+          KLIPY_API_KEY: ${{ secrets.KLIPY_API_KEY }}
         run: |
           mkdir -p crates/linvclip-ui/src-tauri/resources
           cp target/x86_64-pc-windows-msvc/release/clipd.exe crates/linvclip-ui/src-tauri/resources/
@@ -248,6 +257,8 @@ jobs:
           cache-dependency-path: crates/linvclip-ui/package-lock.json
       - uses: ./.github/actions/linux-deps
       - name: Build all
+        env:
+          KLIPY_API_KEY: ${{ secrets.KLIPY_API_KEY }}
         run: make build-all
       - name: Package .deb
         run: ./packaging/build-deb.sh --skip-build

@@ -22,6 +22,7 @@ test:
 	cargo test --workspace --locked
 
 lint:
+	cd crates/linvclip-ui && npm run lint && npm test
 	cargo fmt --all -- --check
 	cargo clippy --workspace --all-targets --locked -- -D warnings
 

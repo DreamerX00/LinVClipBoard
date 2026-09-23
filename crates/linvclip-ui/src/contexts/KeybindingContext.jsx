@@ -184,7 +184,6 @@ export function KeybindingProvider({ children }) {
             }
 
             const now = Date.now();
-            const combo = eventToCombo(e);
 
             // Check multi-key vim combos: gg, dd
             if (vimMode) {
