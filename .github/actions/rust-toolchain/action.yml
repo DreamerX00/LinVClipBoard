@@ -1,0 +1,12 @@
+name: Install pinned Rust toolchain
+description: >
+  Installs the toolchain, components and targets declared in rust-toolchain.toml
+  so every job (and every developer) compiles with the same rustc/clippy.
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        rustup toolchain install --profile minimal
+        rustup show active-toolchain
+        cargo --version

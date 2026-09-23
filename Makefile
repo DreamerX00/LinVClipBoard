@@ -1,24 +1,33 @@
-.PHONY: build build-ui deb rpm appimage install clean check test lint completions manpages \
+.PHONY: build build-ui frontend deb rpm appimage install clean check test lint ci completions manpages \
         build-win build-win-cross build-win-ui
 
 build:
-	cargo build --release -p clipd -p clipctl
+	cargo build --release --locked -p clipd -p clipctl
 
 build-ui:
-	cd crates/linvclip-ui && npm install && npx tauri build
+	cd crates/linvclip-ui && npm ci && npx tauri build -- --locked
+
+# tauri::generate_context!() embeds the built frontend at compile time, so
+# anything that compiles linvclip-ui (clippy, tests) needs this first.
+frontend:
+	cd crates/linvclip-ui && npm ci && npm run build
 
 build-all: build build-ui
 
 check:
-	cargo check --workspace
-	cargo test -p shared
+	cargo check --workspace --locked
+	cargo test -p shared --locked
 
 test:
-	cargo test --workspace
+	cargo test --workspace --locked
 
 lint:
 	cargo fmt --all -- --check
-	cargo clippy --workspace -- -D warnings
+	cargo clippy --workspace --all-targets --locked -- -D warnings
+
+# Same steps as the Lint/Test jobs in .github/workflows/ci.yml. Run before
+# pushing; if this passes locally, CI will pass on Linux.
+ci: frontend lint test
 
 deb: build-all
 	./packaging/build-deb.sh
