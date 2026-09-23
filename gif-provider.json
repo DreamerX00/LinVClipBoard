@@ -3,5 +3,5 @@
   "notes": "Runtime settings for the GIF tab. Every installed LinVClipBoard newer than 3.3.1 downloads this file from the main branch and caches it for 6 hours; when KLIPY rejects the current key the app re-downloads it immediately. To rotate the key, edit api_key here and commit to main - no release needed. Keep this file valid JSON (CI checks it).",
   "provider": "klipy",
   "base_url": "https://api.klipy.com/api/v1",
-  "api_key": ""
+  "api_key": "I2IwOvWrA57Tw5J7tEqDwCV5YSpz9N5vq3BI8mpHgYuxlekiCfC5fYUrBmEjIO4H"
 }
