@@ -66,6 +66,12 @@ Built in **Rust + Tauri v2**. Runs as a systemd user service. No Electron. No bl
 curl -fsSL https://raw.githubusercontent.com/DreamerX00/LinVClipBoard/main/install.sh | bash
 ```
 
+Alternate CDN (if the above 404s from a stale cache):
+
+```bash
+curl -fsSL https://cdn.jsdelivr.net/gh/DreamerX00/LinVClipBoard@main/install.sh | bash
+```
+
 That downloads the latest `.deb` from
 [Releases](https://github.com/DreamerX00/LinVClipBoard/releases/latest),
 verifies its checksum, and installs it (dependencies resolve automatically).
