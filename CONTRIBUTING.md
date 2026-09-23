@@ -40,7 +40,7 @@ action `.github/actions/linux-deps` — if you add one, update both places.
    runs the same `cargo fmt`, `cargo clippy --all-targets -D warnings` and
    `cargo test` invocations as the Lint/Test jobs in
    `.github/workflows/ci.yml`. Windows-only code is compiled and tested by the
-   `windows-latest` jobs on the PR.
+   `windows-2025` jobs on the PR.
 7. Update `CHANGELOG.md` for user-visible changes.
 
 ## Windows-only Tauri config
