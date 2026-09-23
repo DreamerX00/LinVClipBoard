@@ -49,6 +49,9 @@ installer-logs/
 /dist/
 crates/linvclip-ui/src-tauri/binaries/
 
+# Local release-notes working file (release.sh manages notes-$VERSION.md itself)
+Release_description.md
+
 # Deb packaging artifacts (standalone scripts, not used by build-deb.sh)
 /install/deb-desktop.desktop
 /install/deb-postinst.sh
