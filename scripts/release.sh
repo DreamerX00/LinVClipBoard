@@ -195,8 +195,12 @@ run_step() {
 run_ro() { local d=$DRY_RUN; DRY_RUN=false; run_step "$@"; DRY_RUN=$d; }
 
 # spin_wait SECONDS "label"  — animate while sleeping.
+# NOTE: keep the arithmetic in its own `local`: bash expands every RHS of a
+# single `local` before creating any of the variables, so referencing `secs`
+# in the same declaration trips `set -u` ("secs: unbound variable").
 spin_wait() {
-    local secs=$1 label=$2 i=0 end=$((SECONDS + secs))
+    local secs=$1 label=$2 i=0
+    local end=$((SECONDS + secs))
     hide_cursor
     while (( SECONDS < end )); do
         $IS_TTY && printf '\r  %s%s%s %s\e[K' "$C_ACC" "${FRAMES[i % ${#FRAMES[@]}]}" "$RST" "$label"
