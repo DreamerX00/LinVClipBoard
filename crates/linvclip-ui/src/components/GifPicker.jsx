@@ -7,18 +7,25 @@ const DEBOUNCE_MS = 300;
 
 /**
  * Error codes returned by the Rust GIF commands that have a friendly,
- * localized message. Anything else is shown verbatim.
- * Keep in sync with `GIF_API_KEY_MISSING` in src-tauri/src/lib.rs.
+ * localized message. Anything else is shown verbatim (the backend never puts
+ * a URL in those). Keep in sync with the `GIF_*` constants in
+ * src-tauri/src/gif.rs.
+ *
+ * All of them are retryable: the key and endpoint come from the project's
+ * `gif-provider.json` at runtime, so a missing or rotated key can be fixed
+ * upstream while the app keeps running.
  */
 const GIF_ERROR_KEYS = {
     gif_api_key_missing: "gif.api_key_missing",
+    gif_api_key_invalid: "gif.api_key_invalid",
+    gif_network_error: "gif.network_error",
 };
 
 /** Map a backend error (string or Error) to a user-facing message. */
 function describeGifError(err, t) {
     const code = err instanceof Error ? err.message : String(err);
     const key = GIF_ERROR_KEYS[code];
-    return { message: key ? t(key) : code, retryable: !key };
+    return { message: key ? t(key) : code, known: Boolean(key), retryable: true };
 }
 
 /* Tiny component that shows a shimmer skeleton until its image loads. */
@@ -225,7 +232,7 @@ function GifPicker({ searchQuery, onToast }) {
             body = (
                 <GifError
                     error={categoriesError}
-                    title={categoriesError.retryable ? t("gif.categories_failed") : null}
+                    title={categoriesError.known ? null : t("gif.categories_failed")}
                     onRetry={loadCategories}
                     t={t}
                 />

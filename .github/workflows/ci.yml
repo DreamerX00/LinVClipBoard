@@ -50,6 +50,12 @@ jobs:
       - name: Frontend lint and tests
         working-directory: crates/linvclip-ui
         run: npm run lint && npm test
+      - name: Validate gif-provider.json
+        # Every installed app downloads this file from main at runtime; a
+        # typo here would break GIF search for all users at once.
+        run: |
+          jq -e 'type == "object" and (.api_key | type == "string") and (.base_url | test("^https://"))' gif-provider.json > /dev/null
+          [ -n "$(jq -r .api_key gif-provider.json)" ] || echo "::warning::gif-provider.json has an empty api_key — GIF search is disabled until it is filled in"
       - name: Check formatting
         run: cargo fmt --all -- --check
       - name: Clippy
@@ -128,21 +134,10 @@ jobs:
           cache: npm
           cache-dependency-path: crates/linvclip-ui/package-lock.json
       - uses: ./.github/actions/linux-deps
-      - name: Require release secrets (tag builds)
-        if: startsWith(github.ref, 'refs/tags/v')
-        env:
-          KLIPY_API_KEY: ${{ secrets.KLIPY_API_KEY }}
-        run: |
-          # A tag build publishes what it produces; never ship GIF search disabled.
-          [ -n "$KLIPY_API_KEY" ] || { echo "::error::KLIPY_API_KEY secret is not set — refusing to release a build without GIF search"; exit 1; }
       - name: Build UI
         working-directory: crates/linvclip-ui
         # Also checks that the npm @tauri-apps/* versions match the Rust tauri
         # crates — the CLI refuses to build on a major/minor mismatch.
-        # KLIPY_API_KEY is embedded by build.rs; without it the artifact ships
-        # with GIF search disabled (see CONTRIBUTING.md).
-        env:
-          KLIPY_API_KEY: ${{ secrets.KLIPY_API_KEY }}
         run: npm ci && npx tauri build -- ${{ env.CARGO_FLAGS }}
 
   build-windows:
@@ -174,19 +169,14 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
         env:
-          KLIPY_API_KEY: ${{ secrets.KLIPY_API_KEY }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         run: |
           # The .exe built here is what the release job ships and what the
-          # in-app updater installs: it needs GIF search and a signature.
-          if (-not $env:KLIPY_API_KEY) { Write-Output "::error::KLIPY_API_KEY secret is not set"; exit 1 }
+          # in-app updater installs: it needs a signature.
           if (-not $env:TAURI_SIGNING_PRIVATE_KEY) { Write-Output "::error::TAURI_SIGNING_PRIVATE_KEY secret is not set — the updater cannot verify an unsigned installer"; exit 1 }
       - name: Build Tauri Windows app
         shell: pwsh
         env:
-          # KLIPY_API_KEY is embedded by build.rs; this job builds the .exe that
-          # ships, so it needs the key just like build-ui and release.
-          KLIPY_API_KEY: ${{ secrets.KLIPY_API_KEY }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
         working-directory: crates/linvclip-ui
@@ -242,8 +232,6 @@ jobs:
       - name: Build Rust binaries (cross)
         run: cargo xwin build --release ${{ env.CARGO_FLAGS }} --target x86_64-pc-windows-msvc -p clipd -p clipctl
       - name: Build Tauri (cross)
-        env:
-          KLIPY_API_KEY: ${{ secrets.KLIPY_API_KEY }}
         run: |
           mkdir -p crates/linvclip-ui/src-tauri/resources
           cp target/x86_64-pc-windows-msvc/release/clipd.exe crates/linvclip-ui/src-tauri/resources/
@@ -277,14 +265,7 @@ jobs:
           cache: npm
           cache-dependency-path: crates/linvclip-ui/package-lock.json
       - uses: ./.github/actions/linux-deps
-      - name: Require release secrets
-        env:
-          KLIPY_API_KEY: ${{ secrets.KLIPY_API_KEY }}
-        run: |
-          [ -n "$KLIPY_API_KEY" ] || { echo "::error::KLIPY_API_KEY secret is not set — refusing to release a build without GIF search"; exit 1; }
       - name: Build all
-        env:
-          KLIPY_API_KEY: ${{ secrets.KLIPY_API_KEY }}
         run: make build-all
       - name: Package .deb
         run: ./packaging/build-deb.sh --skip-build

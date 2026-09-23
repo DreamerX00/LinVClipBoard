@@ -4,6 +4,24 @@ All notable changes to this project are documented here. Versions follow
 [SemVer](https://semver.org/); release artifacts are published on the
 [Releases](https://github.com/DreamerX00/LinVClipBoard/releases) page.
 
+## [Unreleased]
+
+### 🐛 Fixed
+
+- **GIF tab works again, and stays working when the KLIPY key is rotated.** The key used to be compiled into every build, so a rotated or revoked key broke GIF search in every released version at once (the error users saw was "Couldn't load GIF categories … error sending request"). The app now downloads the key and API endpoint from [`gif-provider.json`](gif-provider.json) on the `main` branch at runtime, caches it for 6 hours, and re-downloads it immediately when KLIPY rejects the current key. Rotating the key is a one-line commit; no rebuild, no release.
+- GIF requests use HTTP/1.1: KLIPY's edge was observed stalling HTTP/2 GETs for 15 s or more (the request then hit the 10 s timeout) while HTTP/1.1 answers in under half a second.
+- GIF error messages no longer echo the request URL, which contained the API key. Network problems, a missing key and a rejected key each get a localized message with a Retry button.
+
+### ✨ New
+
+- `[gif]` section in `config.toml`: `api_key` (use your own KLIPY key), `base_url` (proxy), `provider_url` (forks). `KLIPY_API_KEY` in the environment works like `api_key`.
+
+### 🔧 Build / CI
+
+- The `KLIPY_API_KEY` repository secret, the `klipy.key` file and the key-embedding `build.rs` are gone; CI no longer needs the secret to release. The Lint job validates `gif-provider.json` instead.
+- Unit tests for the GIF provider resolution (download, cache, rotation retry, throttling, offline fallback, error redaction) against a local mock server, plus an opt-in live test against KLIPY (`cargo test -p linvclip-ui -- --ignored`).
+- Webview CSP `img-src` allows any `https:` host so a change of KLIPY's CDN does not need a release either.
+
 ## [3.3.1] - 2026-09-23
 
 ### 🐛 Fixed

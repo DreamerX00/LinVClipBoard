@@ -249,7 +249,16 @@ theme = "auto"                    # auto | dark | light
 language = "en"                   # en | pt | ja | hi
 zoom = 100                        # 50–200
 window_position = "mouse"         # mouse | fixed
+
+[gif]                             # optional — defaults come from gif-provider.json
+# api_key = "your-own-klipy-key"  # use your own KLIPY app key
+# base_url = "https://api.klipy.com/api/v1"
 ```
+
+GIF search uses the API key from [`gif-provider.json`](gif-provider.json) in
+this repository, downloaded at runtime and cached for 6 hours. Rotating the
+key is a one-line edit to that file; installed apps pick it up on their next
+GIF request, no update needed.
 
 ---
 

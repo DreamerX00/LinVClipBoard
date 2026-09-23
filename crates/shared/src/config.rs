@@ -10,6 +10,8 @@ pub struct AppConfig {
     pub storage: StorageConfig,
     #[serde(default)]
     pub features: FeaturesConfig,
+    #[serde(default)]
+    pub gif: GifConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -64,6 +66,24 @@ impl Default for FeaturesConfig {
             redact_sensitive: true,
         }
     }
+}
+
+/// GIF search overrides. Everything here is optional: by default the app
+/// downloads the project's `gif-provider.json` at runtime (see
+/// `linvclip-ui/src-tauri/src/gif.rs`), so a rotated KLIPY key never needs a
+/// new release. Set `api_key` to use your own KLIPY app key instead.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GifConfig {
+    /// Your own KLIPY app key. When set, `gif-provider.json` is not consulted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_key: Option<String>,
+    /// API base URL, e.g. `https://api.klipy.com/api/v1` (a proxy works too).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_url: Option<String>,
+    /// Where to download `gif-provider.json` from (forks point this at their
+    /// own copy).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -155,6 +175,7 @@ impl Default for AppConfig {
                 tray_items: 5,
             },
             features: FeaturesConfig::default(),
+            gif: GifConfig::default(),
             storage: StorageConfig {
                 max_items: 10_000,
                 max_item_size_bytes: 50 * 1024 * 1024, // 50MB
@@ -262,5 +283,61 @@ impl AppConfig {
             return config;
         }
         AppConfig::default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const MINIMAL: &str = r#"
+[daemon]
+poll_interval_ms = 250
+[security]
+blacklisted_apps = []
+incognito = false
+[ui]
+theme = "auto"
+window_width = 420
+window_height = 520
+[storage]
+max_items = 100
+max_item_size_bytes = 1024
+expiry_days = 30
+"#;
+
+    #[test]
+    fn gif_section_is_optional() {
+        let cfg: AppConfig = toml::from_str(MINIMAL).unwrap();
+        assert_eq!(cfg.gif, GifConfig::default());
+        assert_eq!(cfg.gif.api_key, None);
+    }
+
+    #[test]
+    fn gif_section_is_read_when_present() {
+        let text = format!(
+            "{}\n[gif]\napi_key = \"my-key\"\nbase_url = \"https://proxy.example/v1\"\n",
+            MINIMAL
+        );
+        let cfg: AppConfig = toml::from_str(&text).unwrap();
+        assert_eq!(cfg.gif.api_key.as_deref(), Some("my-key"));
+        assert_eq!(
+            cfg.gif.base_url.as_deref(),
+            Some("https://proxy.example/v1")
+        );
+        assert_eq!(cfg.gif.provider_url, None);
+    }
+
+    #[test]
+    fn default_config_round_trips_through_toml_and_json() {
+        let cfg = AppConfig::default();
+        let toml_text = toml::to_string_pretty(&cfg).unwrap();
+        let back: AppConfig = toml::from_str(&toml_text).unwrap();
+        assert_eq!(back.gif, GifConfig::default());
+        // The GUI round-trips the config as JSON over IPC; unset overrides must
+        // survive that too.
+        let json = serde_json::to_string(&cfg).unwrap();
+        let back: AppConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.gif, GifConfig::default());
     }
 }

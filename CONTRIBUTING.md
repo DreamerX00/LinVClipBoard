@@ -43,31 +43,49 @@ action `.github/actions/linux-deps` — if you add one, update both places.
    `windows-2025` jobs on the PR.
 7. Update `CHANGELOG.md` for user-visible changes.
 
-## GIF search: the KLIPY API key
+## GIF search: the KLIPY key lives in `gif-provider.json`
 
-GIF search talks to [KLIPY](https://klipy.com). The app key is embedded at
-compile time by `crates/linvclip-ui/src-tauri/build.rs`, which looks for it in
-this order:
+GIF search talks to [KLIPY](https://klipy.com). The app key is **not compiled
+in**. Every installed app newer than 3.3.1 downloads
+[`gif-provider.json`](gif-provider.json) from the `main` branch the first time
+the GIF tab is opened, caches it for 6 hours, and reads the key and API base
+URL from it (`crates/linvclip-ui/src-tauri/src/gif.rs`).
 
-1. the `KLIPY_API_KEY` environment variable — **this is what CI uses**;
-2. `crates/linvclip-ui/src-tauri/klipy.key` (gitignored) — local-dev fallback.
+**To rotate the key:** edit `api_key` in `gif-provider.json`, commit to `main`.
+That is the whole procedure — no rebuild, no release, no secret to update.
+Installed apps pick the new key up on their next GIF request: when KLIPY
+rejects the old key the app re-downloads the file immediately and retries
+(at most once a minute), so the rotation is invisible to users.
 
-If neither is set the build still succeeds, but `cargo` prints a
-`KLIPY API key not found` warning and every GIF command returns
-`gif_api_key_missing`; the GIF tab then shows a localized "GIF search is
-unavailable" message instead of results. A release artifact built that way
-ships without GIF search, so:
+Details worth knowing:
 
-- **CI / releases:** set the repository secret `KLIPY_API_KEY` (Settings →
-  Secrets and variables → Actions). `.github/workflows/ci.yml` passes it to
-  the `build-ui`, `build-windows` and `release` jobs as an environment
-  variable; `cargo:rerun-if-env-changed=KLIPY_API_KEY` makes cargo rebuild
-  the UI crate when it changes.
-- **Local builds:** `export KLIPY_API_KEY=…` before `make`/`npx tauri build`,
-  or drop the key into `crates/linvclip-ui/src-tauri/klipy.key`.
-- **Never commit a key.** `klipy.key` is gitignored; do not add the key to
-  `tauri.conf.json`, the Makefile, workflow files, or tests. `build.rs` only
-  ever prints *where* the key came from, never the value.
+- The file is fetched from `raw.githubusercontent.com` with jsDelivr as a
+  mirror (same as `install.sh`). If neither is reachable the last downloaded
+  copy is used, however old.
+- Empty `api_key` → the GIF tab shows "no API key is configured yet" (error
+  code `gif_api_key_missing`); a rejected key → `gif_api_key_invalid`; no
+  network → `gif_network_error`. `GifPicker.jsx` maps these codes to the
+  localized strings; anything else is shown verbatim, and the backend never
+  puts a URL in an error (the URL contains the key).
+- The Lint job checks that `gif-provider.json` is valid JSON and warns when
+  `api_key` is empty. Keep the file valid: a typo breaks GIF search for every
+  installed copy within hours.
+- Yes, the key is public. It always was — a KLIPY app key is a client-side
+  key (like Giphy/Tenor keys), and the old XOR "obfuscation" in the binary
+  was reversible with the pad that sat next to it. KLIPY rate-limits and
+  revokes per key; rotating is now a one-line commit.
+- Users and forks can override everything in `config.toml`:
+
+  ```toml
+  [gif]
+  api_key = "your-own-klipy-key"          # skips gif-provider.json entirely
+  base_url = "https://api.klipy.com/api/v1" # or a proxy
+  provider_url = "https://…/gif-provider.json" # forks: your own copy
+  ```
+
+  `KLIPY_API_KEY` in the environment works like `api_key` (handy when testing
+  a new key before committing it). Requests go out over HTTP/1.1 on purpose:
+  KLIPY's edge has been seen to stall HTTP/2 GETs for 15 s and more.
 
 ## In-app updates: the signing key
 
@@ -100,7 +118,7 @@ pubkey it was compiled with, so a new key means users on older versions can
 no longer verify — and therefore no longer auto-install — updates (they still
 get the "update available" prompt via the GitHub API fallback). Keep the
 private key backed up outside the repo. Tag builds fail early when either
-secret or `KLIPY_API_KEY` is missing; pushes to `main` and PRs build unsigned.
+secret is missing; pushes to `main` and PRs build unsigned.
 
 ## Frontend lint and tests
 

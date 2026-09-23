@@ -161,7 +161,9 @@
     "copied_url": "URL do GIF copiada!",
     "copy_hint": "Clique para copiar GIF",
     "retry": "Tentar novamente",
-    "api_key_missing": "A pesquisa de GIFs está indisponível: esta versão foi compilada sem uma chave de API do KLIPY.",
+    "api_key_missing": "A pesquisa de GIFs está indisponível: nenhuma chave de API está configurada ainda. Tente novamente mais tarde.",
+    "api_key_invalid": "O serviço de GIFs rejeitou a chave de API desta aplicação. Ela pode ter sido renovada agora mesmo - tente novamente em um minuto.",
+    "network_error": "Não foi possível contactar o serviço de GIFs. Verifique a sua ligação e tente novamente.",
     "categories_failed": "Não foi possível carregar as categorias de GIF."
   },
   "context": {

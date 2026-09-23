@@ -162,7 +162,9 @@
     "copied_url": "GIF URL copied!",
     "copy_hint": "Click to copy GIF",
     "retry": "Retry",
-    "api_key_missing": "GIF search is unavailable: this build was made without a KLIPY API key.",
+    "api_key_missing": "GIF search is unavailable: no API key is configured yet. Try again later.",
+    "api_key_invalid": "The GIF service rejected this app's API key. It may have just been rotated - try again in a minute.",
+    "network_error": "Couldn't reach the GIF service. Check your connection and retry.",
     "categories_failed": "Couldn't load GIF categories."
   },
   "context": {

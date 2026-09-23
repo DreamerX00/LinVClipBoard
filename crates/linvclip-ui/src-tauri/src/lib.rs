@@ -8,8 +8,7 @@ use tauri::Manager;
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
 use tauri_plugin_updater::UpdaterExt;
 
-// Obfuscated KLIPY API key generated at build time (XOR-scrambled).
-include!(concat!(env!("OUT_DIR"), "/klipy_key.rs"));
+mod gif;
 
 #[derive(Serialize, Deserialize)]
 pub struct ItemsResult {
@@ -22,31 +21,6 @@ pub struct StatusResult {
     pub uptime_secs: u64,
     pub total_items: u64,
     pub db_size_bytes: u64,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-pub struct GifItem {
-    pub id: String,
-    pub slug: String,
-    pub title: String,
-    pub preview_url: String,
-    pub gif_url: String,
-    pub width: u32,
-    pub height: u32,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct GifResult {
-    pub items: Vec<GifItem>,
-    pub page: u32,
-    pub has_next: bool,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-pub struct GifCategory {
-    pub category: String,
-    pub query: String,
-    pub preview_url: String,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -455,7 +429,7 @@ async fn clear_all() -> Result<String, String> {
     };
 
     // Also purge the GIF cache
-    if let Ok(dir) = gif_cache_dir() {
+    if let Ok(dir) = gif::gif_cache_dir() {
         if dir.exists() {
             let _ = std::fs::remove_dir_all(&dir);
             let _ = std::fs::create_dir_all(&dir);
@@ -1242,297 +1216,6 @@ async fn install_update_via_plugin(app: tauri::AppHandle) -> Result<String, Stri
     Ok("installed".to_string())
 }
 
-/// Error code returned by every GIF command when the build has no KLIPY key.
-/// The frontend maps this exact string to a localized message — keep in sync
-/// with `GifPicker.jsx`.
-const GIF_API_KEY_MISSING: &str = "gif_api_key_missing";
-
-/// Timeout for every KLIPY request. Without one a stalled connection keeps the
-/// GIF tab's spinner up indefinitely.
-const KLIPY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
-
-/// Build the HTTP client used for KLIPY requests (10 s overall timeout).
-fn klipy_client() -> Result<reqwest::Client, String> {
-    reqwest::Client::builder()
-        .timeout(KLIPY_TIMEOUT)
-        .user_agent("LinVClipBoard")
-        .build()
-        .map_err(|e| format!("HTTP client error: {}", e))
-}
-
-/// Decode the embedded KLIPY app key (XOR-descrambled at runtime).
-fn get_gif_api_key() -> Result<String, String> {
-    if KLIPY_KEY_BYTES.is_empty() {
-        return Err(GIF_API_KEY_MISSING.to_string());
-    }
-    let decoded: String = KLIPY_KEY_BYTES
-        .iter()
-        .enumerate()
-        .map(|(i, &b)| (b ^ KLIPY_KEY_XOR_PAD[i % KLIPY_KEY_XOR_PAD.len()]) as char)
-        .collect();
-    Ok(decoded)
-}
-
-/// Helper: parse a KLIPY v1 GIF object from JSON.
-fn parse_gif_item(r: &serde_json::Value) -> Option<GifItem> {
-    let id = r["id"]
-        .as_i64()
-        .or_else(|| r["id"].as_u64().map(|v| v as i64))?;
-    let slug = r["slug"].as_str().unwrap_or("").to_string();
-    let title = r["title"].as_str().unwrap_or("").to_string();
-
-    // Prefer sm.webp (fast, small) → sm.gif → xs.gif for preview
-    // Use hd.gif for the URL users copy
-    let file = &r["file"];
-    let preview_url = file["sm"]["webp"]["url"]
-        .as_str()
-        .or_else(|| file["sm"]["gif"]["url"].as_str())
-        .or_else(|| file["xs"]["gif"]["url"].as_str())?
-        .to_string();
-    let gif_url = file["hd"]["gif"]["url"]
-        .as_str()
-        .or_else(|| file["md"]["gif"]["url"].as_str())
-        .unwrap_or(preview_url.as_str())
-        .to_string();
-    let width = file["sm"]["webp"]["width"]
-        .as_u64()
-        .or_else(|| file["sm"]["gif"]["width"].as_u64())
-        .unwrap_or(220) as u32;
-    let height = file["sm"]["webp"]["height"]
-        .as_u64()
-        .or_else(|| file["sm"]["gif"]["height"].as_u64())
-        .unwrap_or(220) as u32;
-
-    Some(GifItem {
-        id: id.to_string(),
-        slug,
-        title,
-        preview_url,
-        gif_url,
-        width,
-        height,
-    })
-}
-
-/// Fetch GIFs from the KLIPY v1 API.
-///
-/// If `query` is empty, fetches trending GIFs.
-#[tauri::command]
-async fn fetch_gifs(query: String, page: u32, per_page: u32) -> Result<GifResult, String> {
-    let app_key = get_gif_api_key()?;
-
-    let client = klipy_client()?;
-    let (url, is_search) = if query.trim().is_empty() {
-        (
-            format!("https://api.klipy.com/api/v1/{}/gifs/trending", app_key),
-            false,
-        )
-    } else {
-        (
-            format!("https://api.klipy.com/api/v1/{}/gifs/search", app_key),
-            true,
-        )
-    };
-
-    let mut params: Vec<(&str, String)> = vec![
-        ("page", page.to_string()),
-        ("per_page", per_page.to_string()),
-        ("customer_id", "linvclipboard_user".to_string()),
-        ("content_filter", "medium".to_string()),
-        ("format_filter", "gif,webp,jpg".to_string()),
-    ];
-    if is_search {
-        params.push(("q", query));
-    }
-
-    let resp = client
-        .get(&url)
-        .query(&params)
-        .send()
-        .await
-        .map_err(|e| format!("HTTP request failed: {}", e))?;
-
-    if !resp.status().is_success() {
-        return Err(format!("API error: {}", resp.status()));
-    }
-
-    let body: serde_json::Value = resp
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse response: {}", e))?;
-
-    if body["result"].as_bool() != Some(true) {
-        return Err("API returned error".to_string());
-    }
-
-    let data = &body["data"];
-    let has_next = data["has_next"].as_bool().unwrap_or(false);
-    let current_page = data["current_page"].as_u64().unwrap_or(page as u64) as u32;
-    let results = data["data"].as_array().ok_or("No data array in response")?;
-
-    let items: Vec<GifItem> = results.iter().filter_map(parse_gif_item).collect();
-
-    Ok(GifResult {
-        items,
-        page: current_page,
-        has_next,
-    })
-}
-
-/// Fetch GIF categories from the KLIPY v1 API.
-#[tauri::command]
-async fn fetch_gif_categories() -> Result<Vec<GifCategory>, String> {
-    let app_key = get_gif_api_key()?;
-
-    let client = klipy_client()?;
-    let url = format!("https://api.klipy.com/api/v1/{}/gifs/categories", app_key);
-
-    let resp = client
-        .get(&url)
-        .send()
-        .await
-        .map_err(|e| format!("HTTP request failed: {}", e))?;
-
-    if !resp.status().is_success() {
-        return Err(format!("API error: {}", resp.status()));
-    }
-
-    let body: serde_json::Value = resp
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse response: {}", e))?;
-
-    if body["result"].as_bool() != Some(true) {
-        return Err("API returned error".to_string());
-    }
-
-    let cats = body["data"]["categories"]
-        .as_array()
-        .ok_or("No categories in response")?;
-
-    let categories: Vec<GifCategory> = cats
-        .iter()
-        .filter_map(|c| {
-            let category = c["category"].as_str()?.to_string();
-            let query = c["query"].as_str()?.to_string();
-            let preview_url = c["preview_url"].as_str()?.to_string();
-            Some(GifCategory {
-                category,
-                query,
-                preview_url,
-            })
-        })
-        .collect();
-
-    Ok(categories)
-}
-
-/// Register a GIF share event with KLIPY v1 API (POST).
-#[tauri::command]
-async fn register_gif_share(slug: String, query: String) -> Result<String, String> {
-    let app_key = get_gif_api_key()?;
-
-    let client = klipy_client()?;
-    let url = format!(
-        "https://api.klipy.com/api/v1/{}/gifs/share/{}",
-        app_key, slug
-    );
-
-    let mut body_map = serde_json::Map::new();
-    body_map.insert(
-        "customer_id".to_string(),
-        serde_json::Value::String("linvclipboard_user".to_string()),
-    );
-    if !query.is_empty() {
-        body_map.insert("q".to_string(), serde_json::Value::String(query));
-    }
-
-    let _ = client
-        .post(&url)
-        .json(&serde_json::Value::Object(body_map))
-        .send()
-        .await;
-
-    Ok("ok".to_string())
-}
-
-/// Return the GIF cache directory, creating it if needed.
-fn gif_cache_dir() -> Result<std::path::PathBuf, String> {
-    let dir = dirs::cache_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
-        .join("linvclip")
-        .join("gifs");
-    std::fs::create_dir_all(&dir).map_err(|e| format!("Cannot create cache dir: {}", e))?;
-    Ok(dir)
-}
-
-/// Copy a GIF URL to the system clipboard.
-///
-/// Worldwide, GIF keyboards on desktop work by copying the direct GIF URL
-/// as plain text.  Chat apps (Discord, Telegram, Slack, etc.) auto-embed
-/// direct `.gif` links, displaying them as animated images.
-///
-/// The `image/gif` MIME type is NOT supported by most paste targets (Electron
-/// apps read `image/png` or `text/plain`), and `wl-clipboard` cannot offer
-/// multiple MIME types simultaneously, so URL-based sharing is the standard.
-#[tauri::command]
-async fn copy_gif(url: String) -> Result<String, String> {
-    let mut clipboard = arboard::Clipboard::new().map_err(|e| format!("Clipboard error: {}", e))?;
-    clipboard
-        .set_text(&url)
-        .map_err(|e| format!("Failed to set clipboard: {}", e))?;
-    Ok("ok".to_string())
-}
-
-/// Purge all cached GIF files.
-#[tauri::command]
-async fn clear_gif_cache() -> Result<String, String> {
-    if let Ok(dir) = gif_cache_dir() {
-        if dir.exists() {
-            std::fs::remove_dir_all(&dir)
-                .map_err(|e| format!("Failed to clear GIF cache: {}", e))?;
-            // Re-create empty dir
-            std::fs::create_dir_all(&dir).ok();
-        }
-    }
-    Ok("ok".to_string())
-}
-
-/// Purge GIF cache files older than the configured expiry days.
-/// Called on app startup.
-fn cleanup_expired_gif_cache() {
-    let expiry_days = {
-        let cfg = AppConfig::load();
-        cfg.storage.expiry_days
-    };
-    let max_age = std::time::Duration::from_secs(expiry_days as u64 * 86400);
-
-    let dir = match gif_cache_dir() {
-        Ok(d) => d,
-        Err(_) => return,
-    };
-
-    let entries = match std::fs::read_dir(&dir) {
-        Ok(e) => e,
-        Err(_) => return,
-    };
-
-    let now = std::time::SystemTime::now();
-    for entry in entries.flatten() {
-        if let Ok(meta) = entry.metadata() {
-            let age = meta
-                .modified()
-                .ok()
-                .and_then(|m| now.duration_since(m).ok());
-            if let Some(age) = age {
-                if age > max_age {
-                    let _ = std::fs::remove_file(entry.path());
-                }
-            }
-        }
-    }
-}
-
 /// Add a tag to an item.
 #[tauri::command]
 async fn add_tag(id: String, tag: String) -> Result<ClipboardItem, String> {
@@ -1891,11 +1574,11 @@ pub fn run() {
             get_image_base64,
             add_tag,
             remove_tag,
-            fetch_gifs,
-            fetch_gif_categories,
-            register_gif_share,
-            copy_gif,
-            clear_gif_cache,
+            gif::fetch_gifs,
+            gif::fetch_gif_categories,
+            gif::register_gif_share,
+            gif::copy_gif,
+            gif::clear_gif_cache,
             get_app_version,
             check_for_updates,
             check_for_updates_via_plugin,
@@ -1919,7 +1602,7 @@ pub fn run() {
             let window = app.get_webview_window("main").unwrap();
 
             // Clean up expired GIF cache files on startup
-            std::thread::spawn(cleanup_expired_gif_cache);
+            std::thread::spawn(gif::cleanup_expired_gif_cache);
 
             // On Windows, spawn clipd if not already running
             #[cfg(windows)]

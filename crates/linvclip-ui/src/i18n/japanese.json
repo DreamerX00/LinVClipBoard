@@ -161,7 +161,9 @@
     "copied_url": "GIF URLをコピーしました！",
     "copy_hint": "GIFをコピー",
     "retry": "再試行",
-    "api_key_missing": "GIF検索は利用できません：このビルドにはKLIPY APIキーが含まれていません。",
+    "api_key_missing": "GIF検索は利用できません：APIキーがまだ設定されていません。後でもう一度お試しください。",
+    "api_key_invalid": "GIFサービスがこのアプリのAPIキーを拒否しました。キーが更新された直後かもしれません。1分後にもう一度お試しください。",
+    "network_error": "GIFサービスに接続できませんでした。接続を確認して再試行してください。",
     "categories_failed": "GIFカテゴリを読み込めませんでした。"
   },
   "context": {
