@@ -4,6 +4,19 @@ All notable changes to this project are documented here. Versions follow
 [SemVer](https://semver.org/); release artifacts are published on the
 [Releases](https://github.com/DreamerX00/LinVClipBoard/releases) page.
 
+## [3.2.1] - 2026-09-23
+
+### 🐛 Fixed
+
+- GIF tab no longer sits on a permanent spinner: a failed categories request now shows an error with a Retry button, and a build without a KLIPY key shows a localized "GIF search is unavailable" message instead of the raw `gif_api_key_missing` code
+- GIF search no longer refetches page 1 in a loop after every response (one request per 300 ms keystroke pause; stale responses are discarded; infinite scroll appends one page at a time)
+- KLIPY requests time out after 10 s instead of hanging
+
+### 🔧 Build / CI
+
+- The KLIPY app key can be supplied via the `KLIPY_API_KEY` environment variable (CI secret); `klipy.key` remains the local-dev fallback, and `cargo` now warns when a build has no key
+- Frontend ESLint + Vitest gates (`npm run lint`, `npm test`) run in the Lint job and `make ci`
+
 ## [Unreleased]
 
 ### 🐛 Fixed

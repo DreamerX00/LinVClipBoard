@@ -1,7 +1,7 @@
 %global debug_package %{nil}
 
 Name:           linvclipboard
-Version:        3.2.0
+Version:        3.2.1
 Release:        1%{?dist}
 Summary:        Clipboard history manager for Linux (Win+V equivalent)
 License:        MIT
@@ -74,6 +74,8 @@ systemctl --user --no-ask-password disable clipd.service 2>/dev/null || true
 %{_datadir}/icons/hicolor/128x128/apps/linvclipboard.png
 
 %changelog
+* Wed Sep 23 2026 LinVClipBoard Contributors <noreply@linvclipboard.dev> - 3.2.1-1
+- GIF Tab Loading Fix
 * Wed Sep 23 2026 LinVClipBoard Contributors <noreply@linvclipboard.dev> - 3.2.0-1
 - The Complete Win+V For Linux, Now On Windows As well
 * Mon Sep 22 2026 LinVClipBoard Contributors <noreply@linvclipboard.dev> - 3.1.0-1
