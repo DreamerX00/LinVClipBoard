@@ -4,6 +4,16 @@ All notable changes to this project are documented here. Versions follow
 [SemVer](https://semver.org/); release artifacts are published on the
 [Releases](https://github.com/DreamerX00/LinVClipBoard/releases) page.
 
+## [3.3.1] - 2026-09-23
+
+### 🐛 Fixed
+
+- *Check for Updates* no longer depends on the GitHub REST API, whose 60 requests/hour limit is shared by everyone behind the same public IP and produced a "GitHub API error: 403" on shared networks. The app now reads the release's update manifest from GitHub's CDN first (no rate limit) and only falls back to the API if that is unavailable. The manifest carries a `linux-x86_64` entry for the `.deb` for this purpose.
+
+### 🔧 Build / CI
+
+- Unit tests for the version comparison and `SHA256SUMS` lookup used by the updater.
+
 ## [3.3.0] - 2026-09-23
 
 ### ✨ New

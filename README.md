@@ -88,11 +88,11 @@ Grab the files for your distro from
 ### Debian/Ubuntu (.deb)
 
 ```bash
-# Download linvclipboard_3.3.0-1_amd64.deb and SHA256SUMS, then verify:
+# Download linvclipboard_3.3.1-1_amd64.deb and SHA256SUMS, then verify:
 sha256sum --ignore-missing -c SHA256SUMS
 
 # Install (apt resolves dependencies automatically):
-sudo apt install ./linvclipboard_3.3.0-1_amd64.deb
+sudo apt install ./linvclipboard_3.3.1-1_amd64.deb
 ```
 
 That's it. The daemon starts automatically. Press **`Ctrl+/`** to open the overlay.
@@ -103,15 +103,15 @@ That's it. The daemon starts automatically. Press **`Ctrl+/`** to open the overl
 
 ```bash
 sha256sum --ignore-missing -c SHA256SUMS
-sudo dnf install ./linvclipboard-3.3.0-1.x86_64.rpm
+sudo dnf install ./linvclipboard-3.3.1-1.x86_64.rpm
 ```
 
 ### Other distros (tarball)
 
 ```bash
 sha256sum --ignore-missing -c SHA256SUMS
-tar xzf linvclipboard-3.3.0-linux-x86_64.tar.gz
-cd linvclipboard-3.3.0-linux-x86_64
+tar xzf linvclipboard-3.3.1-linux-x86_64.tar.gz
+cd linvclipboard-3.3.1-linux-x86_64
 ./install-user.sh   # installs to ~/.local, no root needed
 ```
 
