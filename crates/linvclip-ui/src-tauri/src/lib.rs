@@ -57,6 +57,15 @@ pub struct UpdateInfo {
     pub release_url: String,
     pub release_notes: String,
     pub download_url: String,
+    /// True when the update installs through the Tauri updater plugin
+    /// (Windows build that found the signed release manifest). False means
+    /// the frontend downloads `download_url` itself and runs `install_update`.
+    #[serde(default)]
+    pub via_plugin: bool,
+    /// Hex SHA-256 of `download_url`, when the release manifest provides one.
+    /// `download_update` refuses a file whose hash does not match.
+    #[serde(default)]
+    pub download_sha256: String,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -620,18 +629,114 @@ fn is_launch_at_startup_enabled_impl() -> Result<bool, String> {
     Ok(false)
 }
 
-/// Check GitHub releases for a newer version.
-#[tauri::command]
-async fn check_for_updates() -> Result<UpdateInfo, String> {
-    let current = env!("CARGO_PKG_VERSION");
+const RELEASE_REPO: &str = "DreamerX00/LinVClipBoard";
 
-    let client = reqwest::Client::builder()
-        .user_agent("LinVClipBoard")
+/// Published by the CI release job next to the assets. GitHub serves it via a
+/// redirect to the CDN, so — unlike `api.github.com`, which allows 60
+/// unauthenticated requests/hour per IP — it never rate-limits the check.
+const RELEASE_MANIFEST_URL: &str =
+    "https://github.com/DreamerX00/LinVClipBoard/releases/latest/download/latest.json";
+
+const UPDATE_HTTP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
+
+fn update_client() -> Result<reqwest::Client, String> {
+    reqwest::Client::builder()
+        .user_agent(concat!("LinVClipBoard/", env!("CARGO_PKG_VERSION")))
+        .timeout(UPDATE_HTTP_TIMEOUT)
         .build()
-        .map_err(|e| format!("HTTP client error: {}", e))?;
+        .map_err(|e| format!("HTTP client error: {}", e))
+}
+
+/// `platforms` key in the release manifest for this build, e.g.
+/// `windows-x86_64` or `linux-x86_64` (same scheme as the Tauri updater).
+fn update_platform_key() -> String {
+    let os = match std::env::consts::OS {
+        "macos" => "darwin",
+        other => other,
+    };
+    format!("{}-{}", os, std::env::consts::ARCH)
+}
+
+/// Sort key for a version string: numeric `major.minor.patch…` plus a flag
+/// that ranks a final release above any pre-release of the same numbers
+/// (`3.2.2` > `3.2.2-beta.1`). A leading `v` is ignored.
+fn version_key(v: &str) -> (Vec<u32>, bool) {
+    let v = v.trim().trim_start_matches('v');
+    let (core, is_final) = match v.find(['-', '+']) {
+        Some(i) => (&v[..i], v[i..].starts_with('+')),
+        None => (v, true),
+    };
+    let nums: Vec<u32> = core
+        .split('.')
+        .map(|p| p.trim().parse().unwrap_or(0))
+        .collect();
+    (nums, is_final)
+}
+
+fn version_is_newer(candidate: &str, current: &str) -> bool {
+    version_key(candidate) > version_key(current)
+}
+
+/// Read `latest.json` from the latest GitHub release.
+async fn check_for_updates_via_manifest() -> Result<UpdateInfo, String> {
+    let current = env!("CARGO_PKG_VERSION");
+    let client = update_client()?;
 
     let resp = client
-        .get("https://api.github.com/repos/DreamerX00/LinVClipBoard/releases/latest")
+        .get(RELEASE_MANIFEST_URL)
+        .send()
+        .await
+        .map_err(|e| format!("Network error: {}", e))?;
+    if !resp.status().is_success() {
+        return Err(format!(
+            "Update manifest unavailable: HTTP {}",
+            resp.status()
+        ));
+    }
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("Update manifest parse error: {}", e))?;
+
+    let latest = body["version"]
+        .as_str()
+        .ok_or("Update manifest has no version")?
+        .trim()
+        .trim_start_matches('v')
+        .to_string();
+    let platform = &body["platforms"][update_platform_key()];
+
+    Ok(UpdateInfo {
+        has_update: version_is_newer(&latest, current),
+        current_version: current.to_string(),
+        release_url: format!(
+            "https://github.com/{}/releases/tag/v{}",
+            RELEASE_REPO, latest
+        ),
+        latest_version: latest,
+        release_notes: body["notes"].as_str().unwrap_or("").to_string(),
+        download_url: platform["url"].as_str().unwrap_or("").to_string(),
+        download_sha256: platform["sha256"]
+            .as_str()
+            .unwrap_or("")
+            .trim()
+            .to_ascii_lowercase(),
+        via_plugin: false,
+    })
+}
+
+/// Fallback for releases published without `latest.json`: the GitHub REST
+/// API. Rate-limited (60/hour per IP when unauthenticated), so only used when
+/// the manifest cannot be fetched.
+async fn check_for_updates_via_github_api() -> Result<UpdateInfo, String> {
+    let current = env!("CARGO_PKG_VERSION");
+    let client = update_client()?;
+
+    let resp = client
+        .get(format!(
+            "https://api.github.com/repos/{}/releases/latest",
+            RELEASE_REPO
+        ))
         .send()
         .await
         .map_err(|e| format!("Network error: {}", e))?;
@@ -654,7 +759,7 @@ async fn check_for_updates() -> Result<UpdateInfo, String> {
     let release_notes = body["body"].as_str().unwrap_or("").to_string();
 
     // Find the right asset download URL for this platform
-    let asset_suffix = if cfg!(unix) { ".deb" } else { ".exe" };
+    let asset_suffix = if cfg!(windows) { "-setup.exe" } else { ".deb" };
     let download_url = body["assets"]
         .as_array()
         .and_then(|assets| {
@@ -669,30 +774,55 @@ async fn check_for_updates() -> Result<UpdateInfo, String> {
         })
         .unwrap_or_default();
 
-    // Simple semver comparison: split by '.' and compare numerically
-    let parse_ver = |s: &str| -> Vec<u32> { s.split('.').filter_map(|p| p.parse().ok()).collect() };
-    let cur_parts = parse_ver(current);
-    let lat_parts = parse_ver(latest);
-    let has_update = lat_parts > cur_parts;
-
     Ok(UpdateInfo {
-        has_update,
+        has_update: version_is_newer(latest, current),
         current_version: current.to_string(),
         latest_version: latest.to_string(),
         release_url: html_url.to_string(),
         release_notes,
         download_url,
+        download_sha256: String::new(),
+        via_plugin: false,
     })
 }
 
-/// Download a .deb update from GitHub releases, emitting progress events.
-/// The file is saved to ~/Downloads/linvclipboard_<version>.deb.
+/// Check for a newer release. Reads the release manifest first and falls back
+/// to the GitHub API; both errors are reported if neither source works.
+#[tauri::command]
+async fn check_for_updates() -> Result<UpdateInfo, String> {
+    match check_for_updates_via_manifest().await {
+        Ok(info) => Ok(info),
+        Err(manifest_err) => check_for_updates_via_github_api()
+            .await
+            .map_err(|api_err| format!("{} ({})", api_err, manifest_err)),
+    }
+}
+
+/// Download an update package from GitHub releases, emitting progress events.
+/// Saved to ~/Downloads/linvclipboard_<version>_x86_64.deb (Linux) or .exe
+/// (Windows). When `sha256` is given the file must match it or it is deleted.
 #[tauri::command]
 async fn download_update(
     url: String,
     version: String,
+    sha256: Option<String>,
     app: tauri::AppHandle,
 ) -> Result<String, String> {
+    // `version` becomes part of a file name — never let it carry a path.
+    if version.is_empty()
+        || version.len() > 64
+        || !version
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '+'))
+    {
+        return Err(format!("Invalid version string: {:?}", version));
+    }
+    let url_ok = url.starts_with("https://github.com/")
+        || url.starts_with("https://objects.githubusercontent.com/");
+    if !url_ok {
+        return Err("Refusing to download from outside github.com".to_string());
+    }
+
     let download_dir = dirs::download_dir()
         .or_else(|| dirs::home_dir().map(|h| h.join("Downloads")))
         .ok_or("Cannot determine Downloads directory")?;
@@ -703,8 +833,11 @@ async fn download_update(
     let filename = format!("linvclipboard_{}_x86_64.{}", version, ext);
     let dest = download_dir.join(&filename);
 
+    // No overall timeout here — a multi-MB download on a slow link may take
+    // minutes; the connect timeout still catches a dead network.
     let client = reqwest::Client::builder()
-        .user_agent("LinVClipBoard")
+        .user_agent(concat!("LinVClipBoard/", env!("CARGO_PKG_VERSION")))
+        .connect_timeout(UPDATE_HTTP_TIMEOUT)
         .build()
         .map_err(|e| format!("HTTP client error: {}", e))?;
 
@@ -724,7 +857,9 @@ async fn download_update(
     let mut file =
         std::fs::File::create(&dest).map_err(|e| format!("Cannot create file: {}", e))?;
 
+    use sha2::Digest;
     use std::io::Write;
+    let mut hasher = sha2::Sha256::new();
     let mut stream = resp.bytes_stream();
     use tokio_stream::StreamExt;
 
@@ -732,6 +867,7 @@ async fn download_update(
         let chunk = chunk.map_err(|e| format!("Download stream error: {}", e))?;
         file.write_all(&chunk)
             .map_err(|e| format!("Write error: {}", e))?;
+        hasher.update(&chunk);
         downloaded += chunk.len() as u64;
 
         let percent = if total > 0 {
@@ -750,16 +886,42 @@ async fn download_update(
         );
     }
 
+    drop(file);
+
+    if let Some(expected) = sha256.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        let actual = hex::encode(hasher.finalize());
+        if !actual.eq_ignore_ascii_case(expected) {
+            let _ = std::fs::remove_file(&dest);
+            return Err(format!(
+                "Checksum mismatch — the downloaded file was discarded (expected {}, got {})",
+                expected, actual
+            ));
+        }
+    }
+
     Ok(dest.to_string_lossy().to_string())
 }
 
 /// Install a downloaded update.
 ///
-/// On Linux, uses pkexec + dpkg to install a .deb.
-/// On Windows, returns an info message (handled by the Tauri updater plugin).
+/// Linux: pkexec + dpkg installs the .deb and restarts the app.
+/// Windows: runs the downloaded NSIS installer (passive, relaunch) and exits.
 #[tauri::command]
 async fn install_update(path: String) -> Result<String, String> {
     install_update_impl(&path).await
+}
+
+/// Stop the clipboard daemon so the installer can replace `clipd.exe`.
+/// Tauri's NSIS template only closes the main window's process; the updated
+/// UI restarts clipd on launch (see `run()`).
+#[cfg(windows)]
+fn stop_clipd_windows() {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let _ = std::process::Command::new("taskkill")
+        .args(["/F", "/IM", "clipd.exe"])
+        .creation_flags(CREATE_NO_WINDOW)
+        .status();
 }
 
 #[cfg(unix)]
@@ -955,12 +1117,37 @@ exit 0
     }
 }
 
+/// Windows fallback when the updater plugin is unavailable: run the installer
+/// that `download_update` fetched. Same switches the plugin uses — passive
+/// progress UI, update mode (keeps existing shortcuts), relaunch when done —
+/// then exit so the installer can replace our files.
 #[cfg(windows)]
-async fn install_update_impl(_path: &str) -> Result<String, String> {
-    Err("Not used on Windows — the app updates itself via the built-in updater. If this persists, download the latest installer from GitHub releases.".to_string())
+async fn install_update_impl(path: &str) -> Result<String, String> {
+    let p = std::path::Path::new(path);
+    if !p.is_file() {
+        return Err("File not found".to_string());
+    }
+    if !path.to_ascii_lowercase().ends_with(".exe") {
+        return Err("Not a Windows installer (.exe)".to_string());
+    }
+
+    stop_clipd_windows();
+    std::process::Command::new(p)
+        .args(["/P", "/UPDATE", "/R"])
+        .spawn()
+        .map_err(|e| format!("Could not start the installer: {}", e))?;
+
+    // Let the installer come up before we disappear from under it.
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    std::process::exit(0);
 }
 
-/// Check for updates using the Tauri updater plugin (Windows only).
+/// Check for updates using the Tauri updater plugin (Windows).
+///
+/// Falls back to the manifest/GitHub check when the plugin cannot be used
+/// (no signed manifest for this release, bad pubkey, …) so the user still
+/// learns about the update — `via_plugin` then tells the frontend to take the
+/// download-and-run-installer route instead of `install_update_via_plugin`.
 #[tauri::command]
 async fn check_for_updates_via_plugin(app: tauri::AppHandle) -> Result<UpdateInfo, String> {
     let checked = match app.updater() {
@@ -969,9 +1156,10 @@ async fn check_for_updates_via_plugin(app: tauri::AppHandle) -> Result<UpdateInf
     };
     let update = match checked {
         Ok(u) => u,
-        // ponytail: no update manifest published yet (or plugin misconfigured) —
-        // fall back to the GitHub API check so Windows users still learn of updates
-        Err(_) => return check_for_updates().await,
+        Err(plugin_err) => {
+            eprintln!("updater plugin unavailable, using manifest check: {plugin_err}");
+            return check_for_updates().await;
+        }
     };
 
     let current = env!("CARGO_PKG_VERSION").to_string();
@@ -979,16 +1167,21 @@ async fn check_for_updates_via_plugin(app: tauri::AppHandle) -> Result<UpdateInf
         has_update: false,
         current_version: current.clone(),
         latest_version: current,
-        release_url: String::new(),
+        release_url: format!("https://github.com/{}/releases/latest", RELEASE_REPO),
         release_notes: String::new(),
         download_url: String::new(),
+        download_sha256: String::new(),
+        via_plugin: true,
     };
     if let Some(up) = update {
         info.has_update = true;
+        info.release_url = format!(
+            "https://github.com/{}/releases/tag/v{}",
+            RELEASE_REPO, up.version
+        );
         info.latest_version = up.version;
-        info.release_url =
-            "https://github.com/DreamerX00/LinVClipBoard/releases/latest".to_string();
         info.release_notes = up.body.unwrap_or_default();
+        info.download_url = up.download_url.to_string();
     }
     Ok(info)
 }
@@ -1002,7 +1195,16 @@ async fn install_update_via_plugin(app: tauri::AppHandle) -> Result<String, Stri
         return Err("Updater plugin install is Windows-only".to_string());
     }
 
-    let updater = app.updater().map_err(|e| e.to_string())?;
+    let updater = app
+        .updater_builder()
+        .on_before_exit(|| {
+            // Runs right before the plugin launches the installer and exits:
+            // stop the daemon so clipd.exe is not locked during the upgrade.
+            #[cfg(windows)]
+            stop_clipd_windows();
+        })
+        .build()
+        .map_err(|e| e.to_string())?;
     let update = updater
         .check()
         .await

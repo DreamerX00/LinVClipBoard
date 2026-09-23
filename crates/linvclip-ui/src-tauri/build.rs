@@ -34,7 +34,20 @@ fn main() {
         None => (String::new(), "none"),
     };
 
+    println!("cargo:rerun-if-env-changed=KLIPY_REQUIRE_KEY");
     if raw_key.is_empty() {
+        // Release builds (CI sets KLIPY_REQUIRE_KEY=1 on tag builds) must never
+        // ship without GIF search — fail the build instead of warning.
+        if std::env::var("KLIPY_REQUIRE_KEY")
+            .map(|v| v == "1")
+            .unwrap_or(false)
+        {
+            panic!(
+                "KLIPY_REQUIRE_KEY=1 but no KLIPY API key was found (KLIPY_API_KEY env var unset and {} missing or empty). \
+                 Set the KLIPY_API_KEY repository secret — see CONTRIBUTING.md.",
+                key_path.display()
+            );
+        }
         println!(
             "cargo:warning=KLIPY API key not found (KLIPY_API_KEY env var unset and {} missing or empty). \
              GIF search will be disabled in this build. See CONTRIBUTING.md.",

@@ -232,6 +232,8 @@
     "install_desc": "The update has been downloaded. Click Install Now to apply it. You'll be asked for your password.",
     "installing": "Installing…",
     "installing_desc": "Applying update — please enter your password if prompted.",
+    "install_desc_windows": "The installer has been downloaded and verified. Click Install Now to run it — the app closes and reopens on the new version.",
+    "installing_desc_windows": "Starting the installer — the app will close and reopen when the update is done.",
     "installing_restart_hint": "The app will restart automatically after installation.",
     "installed": "Update Installed!",
     "installed_desc": "The update has been installed successfully. Restart the app to use the new version."

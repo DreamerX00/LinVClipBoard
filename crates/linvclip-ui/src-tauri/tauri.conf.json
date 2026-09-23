@@ -1,6 +1,6 @@
 {
     "productName": "LinVClipBoard",
-    "version": "3.2.1",
+    "version": "3.2.2",
     "identifier": "com.linvclipboard.app",
     "build": {
         "frontendDist": "../dist",
@@ -28,7 +28,7 @@
             }
         ],
         "security": {
-            "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: https://asset.localhost https://static.klipy.com data:; connect-src 'self' https://api.klipy.com https://api.github.com https://github.com https://objects.githubusercontent.com; script-src 'self'; font-src 'self' data:"
+            "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: https://asset.localhost https://static.klipy.com https://*.klipy.com data:; connect-src 'self' https://api.klipy.com https://api.github.com https://github.com https://objects.githubusercontent.com; script-src 'self'; font-src 'self' data:"
         }
     },
     "bundle": {
@@ -41,9 +41,9 @@
     },
     "plugins": {
         "updater": {
-            "pubkey": "PLEASE_REPLACE_WITH_GENERATED_PUBKEY",
+            "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDIyQjE0RkNBQ0VGNUExQTcKUldTbm9mWE95ayt4SXNGb1M2anBOcjMwWTFycG9MVVNhTURzejJHaVJBMkpyMU5nQncrQlp3cmIK",
             "endpoints": [
-                "https://github.com/DreamerX00/LinVClipBoard/releases/latest/download/update-windows-x86_64.json"
+                "https://github.com/DreamerX00/LinVClipBoard/releases/latest/download/latest.json"
             ],
             "windows": {
                 "installMode": "passive"

@@ -32,6 +32,8 @@ scraper = "0.22"
 html2text = "0.14"
 yaml_serde = "0.10"
 toml = "1.1"
+sha2 = "0.10"
+hex = "0.4"
 
 [target.'cfg(unix)'.dependencies]
 arboard = { version = "3", features = ["wayland-data-control"] }

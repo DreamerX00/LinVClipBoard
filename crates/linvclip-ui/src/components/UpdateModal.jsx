@@ -33,9 +33,13 @@ function UpdateModal({ updateInfo, onClose }) {
     }, []);
 
     const isWindows = navigator.userAgent.includes("Windows");
+    // Windows builds that found the signed release manifest install through
+    // the Tauri updater plugin. Everything else (Linux, or Windows when the
+    // manifest is unreachable) downloads the package and runs install_update.
+    const viaPlugin = Boolean(updateInfo.via_plugin);
 
     const handleDownload = useCallback(async () => {
-        if (isWindows) {
+        if (viaPlugin) {
             // Backend emits download-progress during download, then the app
             // exits to run the installer — "installed" is only reached on
             // paths where the plugin returns instead of relaunching.
@@ -57,6 +61,7 @@ function UpdateModal({ updateInfo, onClose }) {
             const path = await invoke("download_update", {
                 url: updateInfo.download_url,
                 version: updateInfo.latest_version,
+                sha256: updateInfo.download_sha256 || null,
             });
             setSavedPath(path);
             setStage("ready_to_install");
@@ -64,7 +69,7 @@ function UpdateModal({ updateInfo, onClose }) {
             setErrorMsg(String(err));
             setStage("error");
         }
-    }, [updateInfo, isWindows]);
+    }, [updateInfo, viaPlugin]);
 
     const handleInstall = useCallback(async () => {
         setStage("installing");
@@ -157,12 +162,14 @@ function UpdateModal({ updateInfo, onClose }) {
                             </div>
                             <div className="update-install-body">
                                 <p className="update-install-file">
-                                    {savedPath.split("/").pop()}
+                                    {savedPath.split(/[\\/]/).pop()}
                                     <span className="update-install-size">
                                         {progress.total > 0 ? ` (${fmtBytes(progress.total)})` : ""}
                                     </span>
                                 </p>
-                                <p className="update-install-desc">{t("update.install_desc")}</p>
+                                <p className="update-install-desc">
+                                    {t(isWindows ? "update.install_desc_windows" : "update.install_desc")}
+                                </p>
                             </div>
                             <div className="update-modal-actions">
                                 <button className="update-btn-install" onClick={handleInstall}>
@@ -185,7 +192,9 @@ function UpdateModal({ updateInfo, onClose }) {
                                 <h2 className="update-modal-title">{t("update.installing")}</h2>
                             </div>
                             <div className="update-install-body">
-                                <p className="update-install-desc">{t("update.installing_desc")}</p>
+                                <p className="update-install-desc">
+                                    {t(isWindows ? "update.installing_desc_windows" : "update.installing_desc")}
+                                </p>
                                 <p className="update-install-hint">{t("update.installing_restart_hint")}</p>
                             </div>
                         </>
@@ -264,7 +273,7 @@ function UpdateModal({ updateInfo, onClose }) {
                 <div className="update-modal-actions">
                     {stage === "idle" && (
                         <>
-                            <button className="update-btn-primary" onClick={handleDownload} disabled={!isWindows && !updateInfo.download_url}>
+                            <button className="update-btn-primary" onClick={handleDownload} disabled={!viaPlugin && !updateInfo.download_url}>
                                 ⬇ {t("update.download_now")}
                             </button>
                             <button className="update-btn-secondary" onClick={handleVisitGithub}>

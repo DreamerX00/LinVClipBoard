@@ -231,6 +231,8 @@
     "install_desc": "A atualização foi baixada. Clique em Instalar Agora para aplicá-la. Sua senha será solicitada.",
     "installing": "Instalando…",
     "installing_desc": "Aplicando atualização — insira sua senha se solicitado.",
+    "install_desc_windows": "O instalador foi baixado e verificado. Clique em Instalar Agora para executá-lo — o app fecha e reabre na nova versão.",
+    "installing_desc_windows": "Iniciando o instalador — o app fechará e reabrirá quando a atualização terminar.",
     "installing_restart_hint": "O app será reiniciado automaticamente após a instalação.",
     "installed": "Atualização Instalada!",
     "installed_desc": "A atualização foi instalada com sucesso. Reinicie o app para usar a nova versão."

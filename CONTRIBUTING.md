@@ -109,6 +109,41 @@ the push can be rolled back from the script if a step fails. The release
 body on a tag push always comes from the matching `CHANGELOG.md` section
 (`packaging/release-notes.sh`), so keep that section accurate.
 
+## Auto-update: signing key and release manifest
+
+Windows builds update themselves through the Tauri updater plugin, which only
+accepts an installer whose `.sig` verifies against `plugins.updater.pubkey` in
+`crates/linvclip-ui/src-tauri/tauri.conf.json`. The matching private key lives
+**only** in the repository secrets:
+
+- `TAURI_SIGNING_PRIVATE_KEY` — contents of the private key file produced by
+  `npx tauri signer generate -w <file>` (the base64 blob, not a path);
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` — its password.
+
+Rules:
+
+- **Never commit the private key.** Only the public key goes in
+  `tauri.conf.json`. Rotating the key orphans every installed copy (their
+  embedded pubkey no longer matches), so treat it as permanent.
+- **Tag builds fail without the secret.** `build-windows` refuses to produce an
+  unsigned installer on a `v*` tag, and the `release` job requires the `.sig`
+  to write the manifest. Branch/PR builds still work unsigned.
+- The `release` job publishes `latest.json` (and a `update-windows-x86_64.json`
+  copy) next to the assets:
+  `{ version, notes, pub_date, platforms: { "windows-x86_64": { signature, url, sha256 }, "linux-x86_64": { url, sha256 } } }`.
+  The Tauri updater reads the Windows entry; the app's own update check
+  (`check_for_updates` in `lib.rs`) reads it on every platform via
+  `releases/latest/download/latest.json`, which — unlike `api.github.com`
+  (60 unauthenticated requests/hour per IP) — is never rate-limited. The
+  GitHub API remains a fallback for releases without a manifest.
+- Linux installs the `.deb` from the manifest URL and refuses it if the
+  SHA-256 does not match. Windows without a usable plugin (no manifest, offline
+  pubkey mismatch) downloads the `.exe`, verifies it, and runs it with the same
+  `/P /UPDATE /R` switches the plugin uses.
+- `windows/hooks/installer.nsh` stops `clipd.exe` before files are copied;
+  Tauri only closes the main app, and a running daemon would keep the old
+  binary locked during an update.
+
 ## Windows-only Tauri config
 
 `tauri.conf.json` holds only cross-platform settings. Everything that needs
