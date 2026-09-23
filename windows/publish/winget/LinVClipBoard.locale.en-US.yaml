@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
 PackageIdentifier: LinVClipBoard.LinVClipBoard
-PackageVersion: 3.3.1
+PackageVersion: 3.3.2
 PackageLocale: en-US
 Publisher: LinVClipBoard
 PublisherUrl: https://github.com/DreamerX00/LinVClipBoard
@@ -17,4 +17,4 @@ Tags:
   - clipboard-manager
   - productivity
   - utility
-ReleaseNotesUrl: https://github.com/DreamerX00/LinVClipBoard/releases/tag/v3.3.1
+ReleaseNotesUrl: https://github.com/DreamerX00/LinVClipBoard/releases/tag/v3.3.2

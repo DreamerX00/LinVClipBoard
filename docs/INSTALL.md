@@ -18,20 +18,20 @@ sha256sum --ignore-missing -c SHA256SUMS
 **Debian/Ubuntu** (dependencies resolve automatically):
 
 ```bash
-sudo apt install ./linvclipboard_3.3.1-1_amd64.deb
+sudo apt install ./linvclipboard_3.3.2-1_amd64.deb
 ```
 
 **Fedora/RHEL:**
 
 ```bash
-sudo dnf install ./linvclipboard-3.3.1-1.x86_64.rpm
+sudo dnf install ./linvclipboard-3.3.2-1.x86_64.rpm
 ```
 
 **Other distros** (no root needed):
 
 ```bash
-tar xzf linvclipboard-3.3.1-linux-x86_64.tar.gz
-cd linvclipboard-3.3.1-linux-x86_64
+tar xzf linvclipboard-3.3.2-linux-x86_64.tar.gz
+cd linvclipboard-3.3.2-linux-x86_64
 ./install-user.sh
 ```
 

@@ -1,7 +1,7 @@
 %global debug_package %{nil}
 
 Name:           linvclipboard
-Version:        3.3.1
+Version:        3.3.2
 Release:        1%{?dist}
 Summary:        Clipboard history manager for Linux (Win+V equivalent)
 License:        MIT
@@ -74,6 +74,8 @@ systemctl --user --no-ask-password disable clipd.service 2>/dev/null || true
 %{_datadir}/icons/hicolor/128x128/apps/linvclipboard.png
 
 %changelog
+* Wed Sep 23 2026 LinVClipBoard Contributors <noreply@linvclipboard.dev> - 3.3.2-1
+- Last Version Fix For Final Working
 * Wed Sep 23 2026 LinVClipBoard Contributors <noreply@linvclipboard.dev> - 3.3.1-1
 - Update check no longer hits the GitHub API rate limit
 * Wed Sep 23 2026 LinVClipBoard Contributors <noreply@linvclipboard.dev> - 3.3.0-1
